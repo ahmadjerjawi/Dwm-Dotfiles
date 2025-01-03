@@ -23,14 +23,14 @@ and i am planning to add webage using surf to act as a config manager without th
 - Additional files for personalization and convenience
 - Included icons and fonts to enrich the user interface
 
-![pic-full-240219-2014-56](https://github.com/ahmadjerjawi/Dotfiles-Dwm-envirmoent/assets/72747814/448ad4a0-446a-47c7-9811-5ebb95cf1878)
-![pic-full-240321-1907-50](https://github.com/ahmadjerjawi/Dotfiles-Dwm-envirmoent/assets/72747814/5fd8f7bc-b270-4b92-96a0-137544ca63e2)
-![pic-full-240321-1911-30](https://github.com/ahmadjerjawi/Dotfiles-Dwm-envirmoent/assets/72747814/a7268d18-b588-4ef3-bd8e-6df5de324a83)
-![pic-full-240321-1910-04](https://github.com/ahmadjerjawi/Dotfiles-Dwm-envirmoent/assets/72747814/ba5e6ad4-b26c-432a-b5c4-7a9db468c90d)
+![pic-full-240219-2014-56](https://github.com/ahmadjerjawi/Dwm-Dotfiles/assets/72747814/448ad4a0-446a-47c7-9811-5ebb95cf1878)
+![pic-full-240321-1907-50](https://github.com/ahmadjerjawi/Dwm-Dotfiles/assets/72747814/5fd8f7bc-b270-4b92-96a0-137544ca63e2)
+![pic-full-240321-1911-30](https://github.com/ahmadjerjawi/Dwm-Dotfiles/assets/72747814/a7268d18-b588-4ef3-bd8e-6df5de324a83)
+![pic-full-240321-1910-04](https://github.com/ahmadjerjawi/Dwm-Dotfiles/assets/72747814/ba5e6ad4-b26c-432a-b5c4-7a9db468c90d)
 
 
 
-https://github.com/ahmadjerjawi/Dotfiles-Dwm-envirmoent/assets/72747814/a1f7c7d9-a770-4542-b7ab-fffe417daf8b
+https://github.com/ahmadjerjawi/Dwm-Dotfiles/assets/72747814/a1f7c7d9-a770-4542-b7ab-fffe417daf8b
 
 
 
@@ -44,7 +44,7 @@ make sure to have yay installed or you do the work manually
 
 1. Clone this repsotery
 ```bash
-git clone "https://github.com/ahmadjerjawi/Dotfiles-Dwm-environment.git"
+git clone "https://github.com/ahmadjerjawi/Dwm-Dotfiles.git"
 ```
 the apps that removed in the changes scirpt will remove them
 2. Run install.sh
