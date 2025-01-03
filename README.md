@@ -1,5 +1,5 @@
 
-# Dotfiles-Dwm-envirmoent 
+# Dwm Dotfiles
 
 # My dwm-flexipatch fork and other app
 
