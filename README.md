@@ -28,12 +28,6 @@ and i am planning to add webage using surf to act as a config manager without th
 ![pic-full-240321-1911-30](https://github.com/ahmadjerjawi/Dwm-Dotfiles/assets/72747814/a7268d18-b588-4ef3-bd8e-6df5de324a83)
 ![pic-full-240321-1910-04](https://github.com/ahmadjerjawi/Dwm-Dotfiles/assets/72747814/ba5e6ad4-b26c-432a-b5c4-7a9db468c90d)
 
-
-
-https://github.com/ahmadjerjawi/Dwm-Dotfiles/assets/72747814/a1f7c7d9-a770-4542-b7ab-fffe417daf8b
-
-
-
 ## Shortucts and keybinds 
  stored at the guide by Reading the f config at dwm-flexipatch
  and if you need to add change and if i forgot just read the source code and you know what you are doing 
