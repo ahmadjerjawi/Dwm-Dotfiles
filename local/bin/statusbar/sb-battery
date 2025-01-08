@@ -10,7 +10,7 @@ case $BLOCK_BUTTON in
         notify-send "Battery Info" "$battery_info" ;;
     3) # Right-click: Explain what the module does
         notify-send " Battery Module" "Shows battery status. Left-click: details. Right-click: explanation. Shift+Left: script. Shift+Right: dwmblocks config." ;;
-    6) # Middle-click: Open script in editor
+    6) # Shift + left click: Open script in editor
         "$TERMINAL" -e "$EDITOR" "$0" ;;
 esac
 
