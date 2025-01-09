@@ -63,22 +63,20 @@ endif
 	mkdir -p ${DESTDIR}${PREFIX}/share/xsessions
 	test -f ${DESTDIR}${PREFIX}/share/xsessions/dwm.desktop || cp -n dwm.desktop ${DESTDIR}${PREFIX}/share/xsessions
 	chmod 644 ${DESTDIR}${PREFIX}/share/xsessions/dwm.desktop
+
+# Only install the wiki if 'nowiki' is not passed
+ifeq ($(nowiki),)
 	mkdir -p ${USER_HOME}/.wiki
-	# Check if there are any differences before copying wiki files
 	@for file in wiki.page/*; do \
-		if [ ! -f ${USER_HOME}/.wiki/$$(basename $$file) ]; then \
-			cp -r $$file ${USER_HOME}/.wiki/; \
-		elif ! diff $$file ${USER_HOME}/.wiki/$$(basename $$file) > /dev/null 2>&1; then \
-			mv -f $$file ${USER_HOME}/.wiki/; \
-		fi \
+		cp -r $$file ${USER_HOME}/.wiki/; \
 	done
-	chmod -R 755 ${USER_HOME}/.wiki
+	chmod -R 777 ${USER_HOME}/.wiki
+endif
 
 uninstall:
 	rm -f ${DESTDIR}${PREFIX}/bin/dwm\
 		${DESTDIR}${MANPREFIX}/man1/dwm.1\
 		${DESTDIR}${PREFIX}/share/xsessions/dwm.desktop
-	# Remove the .wiki directory from the user's home
 	rm -rf ${USER_HOME}/.wiki
 
 .PHONY: all clean dist install uninstall

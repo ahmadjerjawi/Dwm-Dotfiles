@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define the directory and log file
-WIKI_DIR="$HOME/.wiki/wiki.page"
+WIKI_DIR="$HOME/.wiki/"
 LOG_FILE="$WIKI_DIR/npm_output.log"
 LOCK_FILE="/tmp/wiki_instance.lock"
 PID_FILE="/tmp/wiki_npm.pid"
