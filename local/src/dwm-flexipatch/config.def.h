@@ -405,7 +405,7 @@ static const char *layoutmenu_cmd = "layoutmenu.sh";
 static const char *const autostart[] = {
     "sh", "-c", "while :; do dwmblocks; sleep 5; done", NULL,
     "sh", "-c", "while :; do clipmenud; sleep 5; done", NULL,
-    "sh", "-c", "while :; do kdeconnectd; sleep 5; done", NULL,
+    "sh", "-c", "while :; do kdeconnect-cli; sleep 5; done", NULL,
     "sh", "-c", "mpv --no-video ~/.local/bin/Startup.mp3", NULL,
     "sh", "-c", "bitwarden-backup; exit 0", NULL, // This will run once and then exit
 };
@@ -958,8 +958,8 @@ static const Key keys[] = {
 	{ MODKEY,			XK_minus,	spawn,		SHCMD("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-; kill -44 $(pidof dwmblocks)") },
 	{ MODKEY,			XK_equal,	spawn,		SHCMD("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+; kill -44 $(pidof dwmblocks)") },
 	/*brightness*/
-	{ MODKEY|ShiftMask,		XK_minus,	spawn,		SHCMD("xbacklight -dec 10") },
-	{ MODKEY|ShiftMask,		XK_equal,	spawn,		SHCMD("xbacklight -inc 10") },
+	{ MODKEY|ShiftMask,		XK_minus,	spawn,		SHCMD("xbacklight -dec 1") },
+	{ MODKEY|ShiftMask,		XK_equal,	spawn,		SHCMD("xbacklight -inc 1") },
 	/*shutdownn , sleep, lock*/
 	{ MODKEY,			XK_BackSpace,	spawn,		{.v = (const char*[]){ "sysact", NULL } } },
 	/*changing tabs*/
@@ -1036,7 +1036,12 @@ static const Key keys[] = {
 		 { MODKEY|ShiftMask,		XK_b,		spawn,		 {.v = (const char*[]){ "dmenu_bluetooth", NULL } } },
 	/* { MODKEY|ShiftMask,		XK_b,		spawn,		SHCMD("") }, */
 	{ MODKEY,			XK_n,		spawn,		{.v = (const char*[]){ "obsidian" , NULL } } },
+	{ MODKEY,			XK_m,		spawn,		{.v = (const char*[]){ TERMINL, "-e", "ncmpcpp", NULL } } },
 	{ MODKEY|ShiftMask,		XK_m,		spawn,		SHCMD("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle; kill -44 $(pidof dwmblocks)") },
+	{ MODKEY,			XK_comma,	spawn,		{.v = (const char*[]){ "mpc", "prev", NULL } } },
+	{ MODKEY|ShiftMask,		XK_comma,	spawn,		{.v = (const char*[]){ "mpc", "seek", "0%", NULL } } },
+	{ MODKEY,			XK_period,	spawn,		{.v = (const char*[]){ "mpc", "next", NULL } } },
+	{ MODKEY|ShiftMask,		XK_period,	spawn,		{.v = (const char*[]){ "mpc", "repeat", NULL } } },
 
 	{ MODKEY,			XK_Left,	focusmon,	{.i = -1 } },
 	{ MODKEY|ShiftMask,		XK_Left,	tagmon,		{.i = -1 } },
@@ -1048,12 +1053,12 @@ static const Key keys[] = {
 	{ MODKEY,			XK_Page_Down,	shiftview,	{ .i = +1 } },
 	{ MODKEY|ShiftMask,		XK_Page_Down,	shifttag,	{ .i = +1 } },
 	{ MODKEY,			XK_Insert,	spawn,		SHCMD("xdotool type $(grep -v '^#' ~/ | dmenu -i -l 50 | cut -d' ' -f1)") },
-	
-	{ MODKEY,			XK_F1,		spawn,		SHCMD("wiki") },
 
+	{ MODKEY,			XK_F1,		spawn,		SHCMD("wiki") },
+	{ MODKEY,			XK_F2,		spawn,		{.v = (const char*[]){ "dmenu_moder", NULL } } },
 	{ MODKEY,			XK_F3,		spawn,		{.v = (const char*[]){ "displayselect", NULL } } },
 
-	{ MODKEY,           XK_F4,           togglescratch, {.v = spcmd3 } },
+	{ MODKEY,                      XK_F4,           togglescratch, {.v = spcmd3 } },
 	{ MODKEY,			XK_F6,		spawn,		{.v = (const char*[]){ "torcli", NULL } } },
 
 

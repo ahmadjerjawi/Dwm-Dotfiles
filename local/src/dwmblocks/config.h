@@ -7,9 +7,9 @@ static const Block blocks[] = {
     /*{"",  "sb-audio",  0,  11},*/
     {"",    "sb-pacpackages",  0,  8},
     /*{"",  "sb-torrent",   20, 7},*/
-    /*{"", "sb-disk" , 10, 23},*/
     /*{"", "sb-icons",  10, 14},*/
     /*{"", "sb-cpu",       10, 18}, */
+    {"", "sb-disk" , 10, 23},
     {"",    "sb-camera",   3,  27},
     {"",    "sb-nettraf",  1,  16},
     {" ",  "sb-clock",    60, 1},
@@ -21,7 +21,7 @@ static const Block blocks[] = {
     {" ",  "sb-kbselect" ,0, 30}
 };
 
-// Sets delimiter between status commands. NULL character ('\0') means no delimiter.
+//Sets delimiter between status commands. NULL character ('\0') means no delimiter.
 static char *delim = " | ";
 
 // Have dwmblocks automatically recompile and run when you edit this file in

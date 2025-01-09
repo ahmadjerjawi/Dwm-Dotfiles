@@ -1,15 +1,23 @@
 #!/bin/sh
-# Add / Remove / Chnage keyboard layout from the line udner
-myLayouts="us ara"
+# Add / Remove / Change keyboard layout from the line under
+myLayouts="us ara il"
 
-
+# Get the current layout
 currentLayout="$(sb-kbselect)"
+# Determine the next layout
 nextLayout="$(echo "$myLayouts" | awk -v currentLayout="$currentLayout" '{for(i=1;i<=NF;i++)if($i==currentLayout)print $(i+1)}')"
 
-# If the next layout is missing, we're at the end of the list
-# and should start over
-[ -z $nextLayout ] && nextLayout=$(echo "$myLayouts" | cut -d ' ' -f1)
+# If the next layout is missing, we're at the end of the list and should start over
+[ -z "$nextLayout" ] && nextLayout=$(echo "$myLayouts" | cut -d ' ' -f1)
 
-setxkbmap "$nextLayout"
+# Set the keyboard layout
+if [ "$nextLayout" = "ara" ]; then
+    # If switching to Arabic, use the digits variant
+    setxkbmap "$nextLayout" -variant digits
+else
+    # Otherwise, set the layout normally
+    setxkbmap "$nextLayout"
+fi
 
+# Refresh the status bar
 pkill -RTMIN+30 "${STATUSBAR:-dwmblocks}"

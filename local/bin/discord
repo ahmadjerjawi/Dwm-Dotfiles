@@ -1,0 +1,25 @@
+#!/bin/bash
+
+# Script to start Vesktop using Flatpak with custom arguments
+
+# Check if any arguments are provided
+if [ $# -eq 0 ]; then
+    flatpak_cmd="run"
+else
+    # Extract the Flatpak command and its arguments
+    flatpak_cmd=""
+    for arg in "$@"; do
+        if [[ $arg == "run" || $arg == "install" || $arg == "update" ]]; then
+            flatpak_cmd="$arg"
+            break
+        fi
+    done
+
+    # If no Flatpak command found, assume 'run'
+    if [ -z "$flatpak_cmd" ]; then
+        flatpak_cmd="run"
+    fi
+fi
+
+# Execute the Flatpak command with Vesktop and its arguments
+flatpak $flatpak_cmd dev.vencord.Vesktop "${@:2}"

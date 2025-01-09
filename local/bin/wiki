@@ -1,17 +1,83 @@
 #!/bin/bash
-cd "$HOME/.wiki/wiki.page" || { echo "Directory $HOME/.wiki/wiki.page not found"; exit 1; }
+
+# Define the directory and log file
+WIKI_DIR="$HOME/.wiki/wiki.page"
+LOG_FILE="$WIKI_DIR/npm_output.log"
+LOCK_FILE="/tmp/wiki_instance.lock"
+PID_FILE="/tmp/wiki_npm.pid"
+SURF_PID_FILE="/tmp/wiki_surf.pid"
+
+# Function to find the running port from the log file
 find_port() {
-    local log_file="$HOME/.wiki/wiki.page/npm_output.log"
-    local port=$(grep -oE 'localhost:[0-9]+' "$log_file" | cut -d ':' -f 2 | tail -n 1)
+    local port=$(grep -oE 'localhost:[0-9]+' "$LOG_FILE" | cut -d ':' -f 2 | tail -n 1)
     echo "$port"
 }
+
+# Function to clean up processes and files
 cleanup() {
-    rm -f "$HOME/.wiki/wiki.page/npm_output.log"
+    # Kill npm preview if running
+    if [ -f "$PID_FILE" ]; then
+        npm_pid=$(cat "$PID_FILE")
+        kill $npm_pid 2>/dev/null
+        rm -f "$PID_FILE"
+    fi
+
+    # Clean up other files
+    rm -f "$LOG_FILE" "$LOCK_FILE" "$SURF_PID_FILE"
 }
+
+# Function to kill existing surf instance for specific port
+kill_existing_surf() {
+    local port=$1
+    for pid in $(pgrep -f "surf.*localhost:$port"); do
+        kill $pid 2>/dev/null
+    done
+}
+
+# Check if ports 4321 or 4322 are in use
+check_existing_instance() {
+    for port in 4321 4322; do
+        if lsof -i :$port -sTCP:LISTEN > /dev/null 2>&1; then
+            echo "$port"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Trap for cleanup
 trap cleanup EXIT
-npm run preview > "$HOME/.wiki/wiki.page/npm_output.log" 2>&1 &
+
+# Ensure only one instance of the script runs
+if [ -e "$LOCK_FILE" ]; then
+    echo "Another instance is already running."
+    exit 1
+else
+    touch "$LOCK_FILE"
+fi
+
+# Change to the wiki directory or exit if it doesn't exist
+cd "$WIKI_DIR" || { echo "Directory $WIKI_DIR not found"; exit 1; }
+
+# Check for an existing instance
+existing_port=$(check_existing_instance)
+if [ -n "$existing_port" ]; then
+    echo "Found existing instance on port $existing_port"
+    kill_existing_surf $existing_port
+    surf "http://localhost:$existing_port" &
+    surf_pid=$!
+    echo $surf_pid > "$SURF_PID_FILE"
+    exit 0
+fi
+
+# Start a new instance
+npm run preview > "$LOG_FILE" 2>&1 &
+npm_pid=$!
+echo $npm_pid > "$PID_FILE"
+
+# Wait for the new instance to start and get its port
 while true; do
-    if [ -f "$HOME/.wiki/wiki.page/npm_output.log" ]; then
+    if [ -f "$LOG_FILE" ]; then
         port=$(find_port)
         if [ -n "$port" ]; then
             break
@@ -19,4 +85,20 @@ while true; do
     fi
     sleep 1
 done
-surf "http://localhost:$port"
+
+# Kill any existing surf instance for this port
+kill_existing_surf $port
+
+# Launch surf and store its PID
+surf "http://localhost:$port" &
+surf_pid=$!
+echo $surf_pid > "$SURF_PID_FILE"
+
+# Monitor surf process and cleanup when it exits
+while kill -0 $surf_pid 2>/dev/null; do
+    sleep 1
+done
+
+# Cleanup and exit when surf is closed
+cleanup
+exit 0

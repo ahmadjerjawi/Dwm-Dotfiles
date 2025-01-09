@@ -82,3 +82,10 @@ bindkey '^[[1;2A' atuin-up-search
 
 # Switch escape and caps if tty and no passwd required:
 sudo -n loadkeys "$XDG_DATA_HOME/larbs/ttymaps.kmap" 2>/dev/null
+export THEOS=~/theos
+export THEOS=~/theos
+export THEOS=~/theos
+export THEOS=~/theos
+export THEOS=~/theos
+export THEOS=~/theos
+export THEOS=~/theos
