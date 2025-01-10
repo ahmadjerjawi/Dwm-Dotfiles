@@ -1048,8 +1048,9 @@ static const Key keys[] = {
 	{ MODKEY,			XK_Page_Down,	shiftview,	{ .i = +1 } },
 	{ MODKEY|ShiftMask,		XK_Page_Down,	shifttag,	{ .i = +1 } },
 	{ MODKEY,			XK_Insert,	spawn,		SHCMD("xdotool type $(grep -v '^#' ~/ | dmenu -i -l 50 | cut -d' ' -f1)") },
-	
+
 	{ MODKEY,			XK_F1,		spawn,		SHCMD("wiki") },
+	{ MODKEY,			XK_F2,		spawn,		SHCMD("dmenu-lockscreen") },
 
 	{ MODKEY,			XK_F3,		spawn,		{.v = (const char*[]){ "displayselect", NULL } } },
 
