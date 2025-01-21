@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# Prints out if there is an ethernet cable connected
+
+ETHERNET_ICON='󰈀'
+
+get_ethernet() {
+    if [ -d /sys/class/net/eth0 ]; then
+        if [ "$(cat /sys/class/net/eth0/carrier)" == "1" ]; then
+            echo -e "$ETHERNET_ICON" # 18q selects the emoji font size, adjust as needed
+        fi
+    fi
+}
+
+# Handle click events
+case $BLOCK_BUTTON in
+  1) xdotool key super+shift+w ;;
+  3) notify-send "󰈀 This is the Etherent module when left clicked gets nmtui
+ right click this shows you if it's connected to cable or not";;
+  6) "$TERMINAL" -e "$EDITOR" "$0" ;;
+  *)
+    get_ethernet
+    ;;
+esac

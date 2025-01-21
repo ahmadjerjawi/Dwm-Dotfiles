@@ -1,0 +1,64 @@
+#!/bin/bash
+
+# Find the paths for audio devices dynamically
+find_audio_paths() {
+    # Find paths for speakers
+    speakers_path=$(find /sys/class/sound/card*/ -name "codec#0" -exec dirname {} \; | grep -m 1 -E ".*")
+    if [ -z "$speakers_path" ]; then
+        echo "Error: Speakers not found"
+        exit 1
+    fi
+
+    # Find paths for headphones
+    headphones_path=$(find /sys/class/sound/card*/ -name "codec#0" -exec dirname {} \; | grep -m 1 -E ".*")
+    if [ -z "$headphones_path" ]; then
+        echo "Error: Headphones not found"
+        exit 1
+    fi
+
+    # Find paths for bluetooth
+    bluetooth_path=$(find /sys/class/bluetooth/ -type l | grep -m 1 -E ".*")
+    if [ -z "$bluetooth_path" ]; then
+        echo "Error: Bluetooth not found"
+        exit 1
+    fi
+}
+
+# Toggle audio output and update icon
+toggle_audio_output() {
+    current_icon=$(cat "$1")
+    case $current_icon in
+        "$SPEAKERS_ICON")
+            new_icon=$HEADPHONES_ICON
+            ;;
+        "$HEADPHONES_ICON")
+            new_icon=$BLUETOOTH_ICON
+            ;;
+        *)
+            new_icon=$SPEAKERS_ICON
+            ;;
+    esac
+    echo "$new_icon" > "$1"
+}
+
+# Handle click events
+case $BLOCK_BUTTON in
+    1)
+        toggle_audio_output "$SPEAKERS_PATH"
+        ;;
+    2)
+        toggle_audio_output "$HEADPHONES_PATH"
+        ;;
+    3)
+        toggle_audio_output "$BLUETOOTH_PATH"
+        ;;
+    *)
+        echo "Unknown button clicked"
+        ;;
+esac
+
+# Print the current audio output icon
+current_speakers=$(cat "$SPEAKERS_PATH")
+current_headphones=$(cat "$HEADPHONES_PATH")
+current_bluetooth=$(cat "$BLUETOOTH_PATH")
+echo "Speakers: $current_speakers | Headphones: $current_headphones | Bluetooth: $current_bluetooth"

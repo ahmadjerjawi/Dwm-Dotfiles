@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# Script to start Vesktop with custom arguments
+
+# Check if Vesktop is already running
+if pgrep -x "vesktop" > /dev/null; then
+    echo "Vesktop is already running."
+    exit 1
+else
+    # Run Vesktop with the provided arguments
+    vesktop "$@"
+fi
+

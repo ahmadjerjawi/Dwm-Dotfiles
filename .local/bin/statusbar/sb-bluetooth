@@ -1,0 +1,68 @@
+#!/bin/bash
+
+# Define your emojis here
+BLUETOOTH_CONNECTED_EMOJI="󰂱"
+BLUETOOTH_ON_EMOJI="󰂯"
+
+get_bluetooth() {
+    # Get the power status of Bluetooth
+    BLUETOOTH_STATUS=$(bluetoothctl show | grep "Powered: " | awk '{print $2}')
+
+    if [ "$BLUETOOTH_STATUS" = "yes" ]; then
+        # Bluetooth is ON. Now check if any device is connected.
+        BLUETOOTH_CONNECTED=$(bluetoothctl info | grep "Connected: " | awk '{print $2}')
+        if [ "$BLUETOOTH_CONNECTED" = "yes" ]; then
+            MAC_ADDRESS=$(bluetoothctl info | grep "Device" | grep -o -E '([[:xdigit:]]{1,2}:){5}[[:xdigit:]]{1,2}')
+            DEVICE_NAME=$(bluetoothctl info $MAC_ADDRESS | grep "Name: " | cut -d ' ' -f 2-)
+            BATTERY_LEVEL=$(get_battery_level $MAC_ADDRESS)
+
+            if [ -n "$BATTERY_LEVEL" ]; then
+                echo "$BLUETOOTH_CONNECTED_EMOJI"
+            else
+                echo "$BLUETOOTH_CONNECTED_EMOJI $DEVICE_NAME (Battery info not available)"
+            fi
+        else
+            # No device is connected. Print the Bluetooth ON emoji.
+            echo $BLUETOOTH_ON_EMOJI
+        fi
+    fi
+}
+
+# Function to get battery level using upower
+get_battery_level() {
+    local mac_address=$1
+    local battery_info=$(upower -i /org/freedesktop/UPower/devices/headset_dev_${mac_address//:/_})
+
+    if [[ $? -eq 0 ]]; then
+        echo "$battery_info" | grep -E "percentage" | awk '{print $2}'
+    else
+        echo "Battery information not available"
+    fi
+}
+
+# Handle click events
+case $BLOCK_BUTTON in
+  1) # Left click
+    # Get the name and battery level of the connected device
+    MAC_ADDRESS=$(bluetoothctl info | grep "Device" | grep -o -E '([[:xdigit:]]{1,2}:){5}[[:xdigit:]]{1,2}')
+    DEVICE_NAME=$(bluetoothctl info $MAC_ADDRESS | grep "Name: " | cut -d ' ' -f 2-)
+    BATTERY_LEVEL=$(get_battery_level $MAC_ADDRESS)
+
+    if [ -n "$DEVICE_NAME" ]; then
+        notify-send "Device Name: $DEVICE_NAME" "Battery Level: $BATTERY_LEVEL"
+    else
+        notify-send "No device connected"
+    fi
+    ;;
+  3) # Right click
+    notify-send "The Bluetooth module. When left clicked, it shows the device name and battery level. If not connected, it shows the Bluetooth status."
+    ;;
+  6) setsid -f "$TERMINAL" -e "$EDITOR" "$0" ;;
+  7) # Signal 7 received (e.g., scroll lock pressed)
+    # Turn off Bluetooth
+    bluetoothctl power off
+    ;;
+  *)
+    get_bluetooth
+    ;;
+esac

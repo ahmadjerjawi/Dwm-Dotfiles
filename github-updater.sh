@@ -30,23 +30,23 @@ handle_error() {
 
 # Create base directories if they don't exist
 echo "Creating directory structure..."
-mkdir -p local/share || handle_error "Failed to create local directory structure"
-mkdir -p config || handle_error "Failed to create config directory"
+mkdir -p .local/share || handle_error "Failed to create .local directory structure"
+mkdir -p .config || handle_error "Failed to create .config directory"
 
 # Backup local directories
 echo "Backing up local directories..."
 for dir in "${BACKUP_DIRS[@]}"; do
     if [ -d "$HOME/.${dir}" ]; then
-        mkdir -p "${dir%/*}" # Create parent directory if needed
+        mkdir -p ".${dir%/*}" # Create parent directory if needed
         # Use rsync with delete flag to remove files that don't exist in source
-        rsync -av --delete --exclude='.git/' "$HOME/.${dir}/" "${dir}/" || handle_error "Failed to copy $dir"
-        echo "✓ Synchronized $dir"
+        rsync -av --delete --exclude='.git/' "$HOME/.${dir}/" ".${dir}/" || handle_error "Failed to copy $dir"
+        echo "✓ Synchronized .$dir"
     else
         echo "! Directory $HOME/.${dir} does not exist, skipping..."
         # If the directory doesn't exist in source but exists in destination, remove it
-        if [ -d "${dir}" ]; then
-            echo "Removing ${dir} as it no longer exists in source..."
-            rm -rf "${dir}"
+        if [ -d ".${dir}" ]; then
+            echo "Removing .${dir} as it no longer exists in source..."
+            rm -rf ".${dir}"
         fi
     fi
 done
@@ -56,14 +56,14 @@ echo "Backing up config directories..."
 for dir in "${CONFIG_DIRS[@]}"; do
     if [ -d "$HOME/.config/$dir" ]; then
         # Use rsync with delete flag to remove files that don't exist in source
-        rsync -av --delete --exclude='.git/' "$HOME/.config/$dir/" "config/$dir/" || handle_error "Failed to copy config/$dir"
-        echo "✓ Synchronized config/$dir"
+        rsync -av --delete --exclude='.git/' "$HOME/.config/$dir/" ".config/$dir/" || handle_error "Failed to copy .config/$dir"
+        echo "✓ Synchronized .config/$dir"
     else
         echo "! Directory $HOME/.config/$dir does not exist, skipping..."
         # If the directory doesn't exist in source but exists in destination, remove it
-        if [ -d "config/$dir" ]; then
-            echo "Removing config/$dir as it no longer exists in source..."
-            rm -rf "config/$dir"
+        if [ -d ".config/$dir" ]; then
+            echo "Removing .config/$dir as it no longer exists in source..."
+            rm -rf ".config/$dir"
         fi
     fi
 done
@@ -82,8 +82,8 @@ done
 
 # Clean up any sensitive information
 echo "Cleaning up sensitive information..."
-if [ -f "config/python/pypirc" ]; then
-    rm "config/python/pypirc"
+if [ -f ".config/python/pypirc" ]; then
+    rm ".config/python/pypirc"
     echo "✓ Removed pypirc file"
 fi
 

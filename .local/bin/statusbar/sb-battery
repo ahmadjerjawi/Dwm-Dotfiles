@@ -1,0 +1,48 @@
+#!/bin/sh
+
+case $BLOCK_BUTTON in
+    1) # Left-click: Show detailed battery info from upower
+        battery_info=""
+        for battery in /sys/class/power_supply/BAT?*; do
+            battery_name=$(basename "$battery")
+            battery_info+="\n$(upower -i /org/freedesktop/UPower/devices/battery_$battery_name | grep -E 'state|percentage|time to empty|energy|capacity')\n"
+        done
+        notify-send "Battery Info" "$battery_info" ;;
+    3) # Right-click: Explain what the module does
+        notify-send " Battery Module" "Shows battery status. Left-click: details. Right-click: explanation. Shift+Left: script. Shift+Right: dwmblocks config." ;;
+    6) # Middle-click: Open script in editor
+        "$TERMINAL" -e "$EDITOR" "$0" ;;
+esac
+
+# Loop through all attached batteries and format the info
+for battery in /sys/class/power_supply/BAT?*; do
+    # If non-first battery, print a space separator.
+    [ -n "${capacity+x}" ] && printf " "
+    # Sets up the status and capacity
+    case "$(cat "$battery/status")" in
+        "Full") status=" " ;;
+        "Discharging") status="" ;;
+        "Charging") status=" " ;;
+        "Not charging") status="" ;;
+        "Unknown") status="" ;;
+    esac
+    capacity=$(cat "$battery/capacity")
+
+    if [ $capacity = "99" ]; then
+        capacity=100;
+    fi
+    if [[ $capacity > 99 ]]; then
+        printf " %s%s%d%%" "$warn" "$status" "$capacity"; unset warn
+    elif [[ $status = " " ]]; then
+        printf "%s%s%d%%" "$status" "$warn" "$capacity"; unset warn
+    elif (( $capacity > 85)); then
+        printf " %s%s%d%%" "$status" "$warn" "$capacity"; unset warn
+    elif (( $capacity > 60)); then
+        printf " %s%s%d%%" "$status" "$warn" "$capacity"; unset warn
+    elif (( $capacity > 30 )); then
+        printf " %s%s%d%%" "$status" "$warn" "$capacity"; unset warn
+    else
+        printf " %s%s%d%%" "$status" "$warn" "$capacity"; unset warn
+    fi
+
+done && exit 0

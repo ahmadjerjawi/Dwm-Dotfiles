@@ -1,0 +1,47 @@
+#!/bin/bash
+
+# List of applications to exclude
+exclude_apps=("pipewire" "wireplumb")
+
+# Function to kill processes using the camera
+kill_camera_processes() {
+  # Find processes that are using the camera
+  camera_processes=$(lsof /dev/video0 | awk '{print $1,$2}' | tail -n +2)
+
+  # Exclude the applications in the list
+  for app in "${exclude_apps[@]}"
+  do
+    camera_processes=$(echo "$camera_processes" | grep -v "$app")
+  done
+
+  # Kill the processes
+  for pid in $(echo "$camera_processes" | awk '{print $2}')
+  do
+    kill -9 $pid
+  done
+}
+
+# Function to check if any process is using the camera
+check_camera() {
+  # Check if any process is using the camera
+  camera_processes=$(lsof /dev/video0 | awk '{print $1,$2}' | tail -n +2)
+
+  # Exclude the applications in the list
+  for app in "${exclude_apps[@]}"
+  do
+    camera_processes=$(echo "$camera_processes" | grep -v "$app")
+  done
+
+  # If there are any processes left, display the emoji
+  if [ -n "$camera_processes" ]; then
+    echo ""
+  fi
+}
+
+# Handle click events
+case $BLOCK_BUTTON in
+  1) kill_camera_processes ;;  # Left click
+  6) "$TERMINAL" -e "$EDITOR" "$0" ;;
+  3) notify-send "This is the camera module. When it detects an app using the camera, it displays an emoji. Left click to kill the process." ;;
+esac
+check_camera

@@ -1,0 +1,23 @@
+#!/bin/bash
+
+# Options for dmenu
+options="Start xautolock\nStop xautolock"
+
+# Get user choice
+choice=$(echo -e "$options" | dmenu -i -p "Xautolock:")
+
+case "$choice" in
+    "Start xautolock")
+        # Start xautolock with slock as the locker
+        xautolock -time 10 -locker slock &
+        notify-send "Xautolock started" "Will lock after 10 minutes of inactivity."
+        ;;
+    "Stop xautolock")
+        # Kill any running xautolock process
+        pkill xautolock
+        notify-send "Xautolock stopped" "Auto-locking disabled."
+        ;;
+    *)
+        # Do nothing if the user cancels or chooses invalid option
+        ;;
+esac

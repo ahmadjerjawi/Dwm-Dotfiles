@@ -1,0 +1,71 @@
+#!/bin/bash
+
+# Define the directory to open
+directory="$HOME/.local/src/"
+
+# Function to show the menu
+show_menu() {
+    selection=$(ls -A "$directory" | dmenu -l 10 -p "Select a file or directory (q to quit):")
+}
+
+# Check if a file is owned by root or higher user
+check_root_owner() {
+    file_owner=$(stat -c '%U' "$directory/$selection")
+    if [ "$file_owner" = "root" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Check if the script is running as root
+check_root() {
+    if [ "$(id -u)" -eq 0 ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Run the script with elevated privileges
+run_with_root() {
+    if [ "$1" = "0" ]; then
+        sudo "$0"
+    else
+        echo "Script already running with root privileges."
+    fi
+    exit
+}
+
+# Initial call to show the menu
+show_menu
+
+# Loop until user quits
+while true; do
+    # If no selection is made or user quits, exit
+    [ -z "$selection" ] && exit
+
+    # Check if the selection is "q" for quit
+    if [ "$selection" = "q" ]; then
+        exit
+    fi
+
+    # Check if the selection is a file
+    if [ -f "$directory/$selection" ]; then
+        # Check if the file is owned by root
+        check_root_owner
+        if [ $? -eq 0 ]; then
+            # Ask for password and rerun with root if necessary
+            check_root
+            run_with_root $?
+        else
+            # Open the selected file
+            xdg-open "$directory/$selection"
+            exit  # Exit after opening the file
+        fi
+    elif [ -d "$directory/$selection" ]; then
+        # Open the selected directory and show its contents
+        directory="$directory/$selection"
+        show_menu
+    fi
+done

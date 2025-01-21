@@ -1,0 +1,15 @@
+#!/bin/sh
+
+# Get the process ID of the window manager
+wmpid() {
+    # This function is needed if there are multiple instances of the window manager.
+    tree="$(pstree -ps $$)"
+    tree="${tree#*$WM(}"
+    echo "${tree%%)*}"
+}
+
+# Define the window manager
+export WM="dwm"
+
+# Renew session
+kill -HUP "$(wmpid)"
