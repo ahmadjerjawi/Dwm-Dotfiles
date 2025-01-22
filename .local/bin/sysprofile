@@ -1,0 +1,81 @@
+#!/bin/sh
+# Display a menu to switch between CPU/GPU profiles using dmenu.
+
+set -e
+
+# Prompt the user to choose CPU or GPU
+mode="$(echo -e "CPU\nGPU" | dmenu -i -p "Choose Mode:")"
+
+if [ -z "$mode" ]; then
+    notify-send --expire-time=2000 --category=system --icon="dialog-warning" "Profile Switcher" "No mode selected."
+    exit 1
+fi
+
+case "$mode" in
+    CPU)
+        if ! command -v tlp >/dev/null 2>&1; then
+            notify-send --expire-time=2000 --category=system --icon="dialog-error" "Profile Switcher" "TLP is not installed."
+            exit 1
+        fi
+        icon="freon-fan-symbolic"
+        active="$(tlp-stat --config | grep '^CPU_SCALING_GOVERNOR=' | cut -d'=' -f2 2>/dev/null || echo "Unknown")"
+        profiles="\
+🔋 Power Saver:power-saver
+💻 Balanced:balanced
+🚀 Performance:performance"
+        ;;
+    GPU)
+        if ! command -v supergfxctl >/dev/null 2>&1; then
+            notify-send --expire-time=2000 --category=system --icon="dialog-error" "Profile Switcher" "supergfxctl is not installed."
+            exit 1
+        fi
+        icon="freon-gpu-temperature-symbolic"
+        active="$(supergfxctl --get 2>/dev/null || echo "Unknown")"
+        profiles="\
+💻 Integrated:Integrated
+🔮 Vfio:Vfio
+🚀 Hybrid:Hybrid"
+        if [ "$active" = "Hybrid" ]; then
+            profiles="$(echo "$profiles" | grep -v Vfio)"
+        fi
+        ;;
+    *)
+        notify-send --expire-time=2000 --category=system --icon="dialog-error" "Profile Switcher" "Invalid mode selected."
+        exit 1
+        ;;
+esac
+
+# Notify the active profile
+notify-send --expire-time=2000 --category=system --icon="$icon" "$mode Mode" "Active profile: $active"
+
+# Get the active profile index (if applicable)
+preselect="$(echo "$profiles" | cut -d':' -f2 | grep --line-number -i "$active" | cut -d':' -f1 | head -n 1)"
+preselect="$((preselect - 1))"
+prompt="$mode Profile:"
+
+# Prompt the user to choose a profile
+choice="$(echo "$profiles" | cut -d':' -f1 | dmenu -i -p "$prompt")"
+
+if [ -z "$choice" ]; then
+    notify-send --expire-time=2000 --category=system --icon="dialog-warning" "$mode Profile" "No profile selected."
+    exit 1
+fi
+
+# Extract the selected profile and apply it
+profile="$(echo "$profiles" | grep "$choice" | cut -d':' -f2)"
+
+case "$mode" in
+    CPU)
+        case "$profile" in
+            power-saver) output="$(sudo tlp setcharge 0 50 2>&1)" ;;
+            balanced) output="$(sudo tlp setcharge 50 80 2>&1)" ;;  # Example range for balanced
+            performance) output="$(sudo tlp setcharge 80 100 2>&1)" ;;
+        esac
+        ;;
+    GPU)
+        output="$(supergfxctl --mode "$profile" 2>&1)"
+        ;;
+esac
+
+# Notify the result of the command
+notify-send --expire-time=2000 --category=system --icon="$icon" "$mode Mode" "Switched to ${choice#* } mode. Output: $output"
