@@ -23,7 +23,6 @@
 ,xorg-xset,"configures X server settings"
 ,xwallpaper,"sets the wallpaper efficiently"
 ,dunst,"provides notification daemon"
-,tint2,"serves as a lightweight panel/taskbar"
 ,nemo,"manages files graphically"
 ,nemo-fileroller,"adds archive support to Nemo"
 ,lxappearance,"customizes GTK theme appearances"

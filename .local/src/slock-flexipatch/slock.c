@@ -108,7 +108,7 @@ struct lock {
 	Window root, win;
 	Pixmap pmap;
 	#if BLUR_PIXELATED_SCREEN_PATCH || BACKGROUND_IMAGE_PATCH
-	Pixmap bgmap;
+	Pixmap pmap;
 	#endif // BLUR_PIXELATED_SCREEN_PATCH | BACKGROUND_IMAGE_PATCH
 	unsigned long colors[NUMCOLS];
 	#if DWM_LOGO_PATCH
@@ -795,3 +795,4 @@ main(int argc, char **argv) {
 
 	return 0;
 }
+
