@@ -111,7 +111,7 @@ if git rev-parse --git-dir > /dev/null 2>&1; then
     # Push changes if remote exists
     if git remote get-url origin >/dev/null 2>&1; then
         echo "Pushing changes to remote repository..."
-        git push origin main || handle_error "Failed to push changes"
+        git push --force origin main || handle_error "Failed to push changes"
     else
         echo "No remote repository configured"
     fi

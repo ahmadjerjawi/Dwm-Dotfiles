@@ -1,0 +1,50 @@
+{
+  "dwm-flexipatch": [
+    "BAR_DWMBLOCKS",
+    "BAR_DWMBLOCKS_SIGUSR1",
+    "BAR_LAYOUTMENU",
+    "BAR_STATUSCMD",
+    "BAR_STATUS2D",
+    "BAR_SYSTRAY",
+    "BAR_UNDERLINETAGS",
+    "BAR_WINICON",
+    "BAR_ALPHA",
+    "BAR_HIDEVACANTTAGS",
+    "BAR_PADDING",
+    "BAR_PADDING_VANITYGAPS",
+    "ALT_TAB",
+    "ALWAYSCENTER",
+    "ASPECTRESIZE",
+    "BIDI",
+    "COOL_AUTOSTART",
+    "CYCLELAYOUTS",
+    "FULLSCREEN",
+    "RENAMED_SCRATCHPADS",
+    "RESIZEPOINT",
+    "RESTARTSIG",
+    "ROUNDED_CORNERS",
+    "SAVEFLOATS",
+    "SEAMLESS_RESTART",
+    "SHIFTSWAPTAGS",
+    "SHIFTTAG",
+    "SHIFTTAGCLIENTS",
+    "SHIFTVIEW",
+    "STACKER",
+    "STICKY",
+    "SWALLOW",
+    "TOGGLEFULLSCREEN",
+    "VANITYGAPS",
+    "WINDOWROLERULE"
+  ],
+  "slock-flexipatch": [
+    "DPMS",
+    "DWM_LOGO",
+    "MEDIAKEYS",
+    "QUICKCANCEL"
+  ],
+  "dmenu-flexipatch": [
+    "ALPHA",
+    "CENTER",
+    "MOUSE_SUPPORT"
+  ]
+}
