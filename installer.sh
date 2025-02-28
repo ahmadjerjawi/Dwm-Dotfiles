@@ -221,8 +221,8 @@ makeuserjs(){
 Operation = Upgrade
 Type = Package
 Target = firefox
-Target = librewolf
-Target = librewolf-bin
+Target = zen-browser
+Target = zen-browser-bin
 [Action]
 Description=Update Arkenfox user.js
 When=PostTransaction
@@ -363,15 +363,15 @@ echo "export \$(dbus-launch)" >/etc/profile.d/dbus.sh
 	Option "Tapping" "on"
 EndSection' >/etc/X11/xorg.conf.d/40-libinput.conf
 
-# All this below to get Librewolf installed with add-ons and non-bad settings.
+# All this below to get zen-browser installed with add-ons and non-bad settings.
 
 whiptail --infobox "Setting browser privacy settings and add-ons..." 7 60
 
-browserdir="/home/$name/.librewolf"
+browserdir="/home/$name/.zen-browser"
 profilesini="$browserdir/profiles.ini"
 
-# Start librewolf headless so it generates a profile. Then get that profile in a variable.
-sudo -u "$name" librewolf --headless >/dev/null 2>&1 &
+# Start zen-browser headless so it generates a profile. Then get that profile in a variable.
+sudo -u "$name" zen-browser --headless >/dev/null 2>&1 &
 sleep 1
 profile="$(sed -n "/Default=.*.default-default/ s/.*=//p" "$profilesini")"
 pdir="$browserdir/$profile"
@@ -380,8 +380,8 @@ pdir="$browserdir/$profile"
 
 [ -d "$pdir" ] && installffaddons
 
-# Kill the now unnecessary librewolf instance.
-pkill -u "$name" librewolf
+# Kill the now unnecessary zen-browser instance.
+pkill -u "$name" zen-browser
 
 # Allow wheel users to sudo with password and allow several system commands
 # (like `shutdown` to run without password).
