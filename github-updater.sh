@@ -16,10 +16,11 @@ CONFIG_DIRS=(
     "pinentry"
     "pipewire"
     "pulse"
-    "python"
     "shell"
     "wget"
     "x11"
+	"picom"
+	"autin"
 )
 
 # Error handling function

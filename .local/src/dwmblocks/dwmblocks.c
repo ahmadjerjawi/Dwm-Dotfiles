@@ -9,7 +9,7 @@
 #include <sys/signalfd.h>
 #include <poll.h>
 #define LENGTH(X) (sizeof(X) / sizeof (X[0]))
-#define CMDLENGTH		50
+#define CMDLENGTH		500
 
 typedef struct {
 	char* icon;

@@ -9,14 +9,13 @@ static const Block blocks[] = {
     /*{"",  "sb-torrent",   20, 7},*/
     /*{"", "sb-icons",  10, 14},*/
     /*{"", "sb-cpu",       10, 18}, */
-    {"", "sb-disk" , 10, 23},
+    {"", "sb-disk" , 30, 23},
     {"",    "sb-camera",   3,  27},
     {"",    "sb-nettraf",  1,  16},
-    {" ",  "sb-clock",    60, 1},
+    {" ",  "sb-clock",    60, 1},
     {"",    "sb-volume",   0,  10},
     {"",    "sb-bluetooth",    3,  11},
     {"",    "sb-internet", 5,  4},
-    {"",    "sb-eth",   5,  14},
     {"",    "sb-battery",   5,  3},
     {" ",  "sb-kbselect" ,0, 30}
 };

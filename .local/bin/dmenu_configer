@@ -1,71 +1,129 @@
 #!/bin/bash
+# File Browser with Root Privilege Handling
+# This script allows browsing and opening files with automatic privilege elevation when needed
 
-# Define the directory to open
-directory="$HOME/.local/src/"
+# Define the initial directory to browse
+INITIAL_DIR="$HOME/.local/src/"
+current_dir="$INITIAL_DIR"
 
-# Function to show the menu
+# Function to show the menu and get selection
 show_menu() {
-    selection=$(ls -A "$directory" | dmenu -l 10 -p "Select a file or directory (q to quit):")
+    local prompt="Browse: ${current_dir/#$HOME/~} (q:quit, b:back)"
+
+    # Check if directory exists and is readable
+    if [ ! -d "$current_dir" ] || [ ! -r "$current_dir" ]; then
+        echo "Error: Cannot access directory $current_dir"
+        exit 1
+    fi
+
+    # List files and directories, handle empty directories
+    local items=$(ls -A "$current_dir" 2>/dev/null)
+    if [ -z "$items" ]; then
+        notify-send "Empty Directory" "The directory is empty."
+        selection="b"
+        return
+    fi
+
+    # Add navigation options
+    selection=$(echo -e "b\nq\n$items" | dmenu -l 15 -p "$prompt")
 }
 
-# Check if a file is owned by root or higher user
-check_root_owner() {
-    file_owner=$(stat -c '%U' "$directory/$selection")
+# Function to navigate back one directory
+go_back() {
+    # Don't go beyond the initial directory
+    if [ "$current_dir" = "$INITIAL_DIR" ]; then
+        notify-send "Navigation" "Already at the top directory."
+        return
+    fi
+
+    # Go up one directory
+    current_dir=$(dirname "$current_dir")
+}
+
+# Check if a file is owned by root or requires elevated privileges
+needs_privileges() {
+    local file="$1"
+
+    # Check if file exists
+    if [ ! -e "$file" ]; then
+        return 1
+    fi
+
+    # Check ownership
+    local file_owner=$(stat -c '%U' "$file")
     if [ "$file_owner" = "root" ]; then
         return 0
-    else
-        return 1
     fi
-}
 
-# Check if the script is running as root
-check_root() {
-    if [ "$(id -u)" -eq 0 ]; then
+    # Check write permissions
+    if [ ! -w "$file" ]; then
         return 0
-    else
+    fi
+
+    return 1
+}
+
+# Open a file with appropriate privileges
+open_file() {
+    local file="$1"
+
+    # Check if file exists
+    if [ ! -e "$file" ]; then
+        notify-send "Error" "File does not exist: $file"
         return 1
     fi
-}
 
-# Run the script with elevated privileges
-run_with_root() {
-    if [ "$1" = "0" ]; then
-        sudo "$0"
-    else
-        echo "Script already running with root privileges."
-    fi
-    exit
-}
-
-# Initial call to show the menu
-show_menu
-
-# Loop until user quits
-while true; do
-    # If no selection is made or user quits, exit
-    [ -z "$selection" ] && exit
-
-    # Check if the selection is "q" for quit
-    if [ "$selection" = "q" ]; then
-        exit
-    fi
-
-    # Check if the selection is a file
-    if [ -f "$directory/$selection" ]; then
-        # Check if the file is owned by root
-        check_root_owner
-        if [ $? -eq 0 ]; then
-            # Ask for password and rerun with root if necessary
-            check_root
-            run_with_root $?
+    # Check if file needs privileges
+    if needs_privileges "$file"; then
+        # Use pkexec for graphical privilege escalation
+        if command -v pkexec >/dev/null 2>&1; then
+            pkexec xdg-open "$file"
         else
-            # Open the selected file
-            xdg-open "$directory/$selection"
-            exit  # Exit after opening the file
+            # Fallback to gksudo or sudo
+            if command -v gksudo >/dev/null 2>&1; then
+                gksudo "xdg-open '$file'"
+            else
+                notify-send "Opening with sudo" "Enter password in terminal"
+                sudo xdg-open "$file"
+            fi
         fi
-    elif [ -d "$directory/$selection" ]; then
-        # Open the selected directory and show its contents
-        directory="$directory/$selection"
-        show_menu
+    else
+        # Open normally
+        xdg-open "$file" &
+    fi
+}
+
+# Main loop
+while true; do
+    show_menu
+
+    # Handle empty selection
+    if [ -z "$selection" ]; then
+        exit 0
+    fi
+
+    # Handle navigation commands
+    case "$selection" in
+        q)
+            exit 0
+            ;;
+        b)
+            go_back
+            continue
+            ;;
+    esac
+
+    # Construct full path of selected item
+    selected_path="$current_dir/$selection"
+
+    # Handle files and directories
+    if [ -f "$selected_path" ]; then
+        open_file "$selected_path"
+        # Continue browsing after opening a file
+        notify-send "File opened" "$selection"
+    elif [ -d "$selected_path" ]; then
+        current_dir="$selected_path"
+    else
+        notify-send "Error" "Invalid selection: $selection"
     fi
 done

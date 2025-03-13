@@ -5,14 +5,28 @@ import json
 import shutil
 import subprocess
 import datetime
+import time
+import threading
+import sys
 from pathlib import Path
-import gi
-gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, Gdk, GLib, Pango, Gio
+try:
+    import gi
+    gi.require_version('Gtk', '3.0')
+    from gi.repository import Gtk, Gdk, GLib, Pango, Gio
+except ImportError:
+    print("Error: GTK libraries not found. Please install python-gi and related packages.")
+    print("Ubuntu/Debian: sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0")
+    print("Arch: sudo pacman -S python-gobject gtk3")
+    print("Fedora: sudo dnf install python3-gobject gtk3")
+    sys.exit(1)
 
 class DWMConfig:
-    def __init__(self):
-        self.dwm_path = self.find_dwm_path()
+    """Handles DWM configuration parsing and management"""
+
+    def __init__(self, config_path=None):
+        self.dwm_path = config_path or self.find_dwm_path()
+        if not self.dwm_path:
+            print("Warning: DWM path not found. Please select path manually.")
         self.config_files = self.find_config_files()
         self.patches = self.parse_patches()
         self.config = self.parse_config()
@@ -24,136 +38,146 @@ class DWMConfig:
             'Autostart': [],
             'Patches': []
         }
+        self.backup_dir = os.path.expanduser("~/.dwm_studio/backups")
         self.organize_config()
+        self.create_backup_dir()
+
+    def create_backup_dir(self):
+        """Create backup directory if it doesn't exist"""
+        if not os.path.exists(self.backup_dir):
+            try:
+                os.makedirs(self.backup_dir)
+            except OSError as e:
+                print(f"Error creating backup directory: {e}")
 
     def find_dwm_path(self):
+        """Find the DWM installation path"""
         common_paths = [
             os.path.expanduser('~/dwm'),
+            os.path.expanduser('~/.config/dwm'),
+            os.path.expanduser('~/.local/src/dwm'),
             '/usr/local/src/dwm',
+            '/usr/src/dwm',
             '/opt/dwm'
         ]
         for path in common_paths:
-            if os.path.exists(path):
-                return path
+            if os.path.exists(path) and os.path.isdir(path):
+                if os.path.exists(os.path.join(path, 'config.h')) or os.path.exists(os.path.join(path, 'config.def.h')):
+                    return path
         return None
 
     def find_config_files(self):
+        """Find and read DWM configuration files"""
         if not self.dwm_path:
             return {}
-        
         files = {}
         for f in ['config.h', 'config.def.h', 'patches.h']:
             path = os.path.join(self.dwm_path, f)
             if os.path.exists(path):
-                with open(path, 'r') as file:
-                    files[f] = file.read()
+                try:
+                    with open(path, 'r') as file:
+                        files[f] = file.read()
+                except Exception as e:
+                    print(f"Error reading file {path}: {e}")
+
+        if not files and self.dwm_path:
+            print(f"Warning: No configuration files found in {self.dwm_path}")
+
         return files
 
-    def create_backup(self):
+    def parse_patches(self):
+        """Parse patches from patches.h file"""
+        patches = {}
         if not self.dwm_path:
-            return False
-            
-        backup_dir = os.path.expanduser('~/.dwm/backups')
-        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        backup_path = os.path.join(backup_dir, f'dwm_backup_{timestamp}')
-        
-        try:
-            os.makedirs(backup_dir, exist_ok=True)
-            shutil.copytree(self.dwm_path, backup_path)
-            return True
-        except Exception as e:
-            print(f"Backup failed: {e}")
-            return False
+            return patches
 
-    def build_dwm(self, password):
+        patches_file = os.path.join(self.dwm_path, "patches.h")
+        if not os.path.exists(patches_file):
+            # If patches.h doesn't exist, try to create it
+            self.create_patches_file()
+            if not os.path.exists(patches_file):
+                return patches
+
+        try:
+            with open(patches_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("#define") and (line.endswith("1") or line.endswith("0")):
+                        parts = line.split()
+                        if len(parts) >= 3 and parts[0] == "#define":
+                            patch_macro = parts[1]
+                            value = parts[2]
+                            if value not in ("0", "1"):
+                                continue
+
+                            # Clean up patch name for better display
+                            if patch_macro.endswith("_PATCH"):
+                                patch_name = patch_macro[:-6]
+                            else:
+                                patch_name = patch_macro
+
+                            pretty_name = patch_name.replace("_", " ").title()
+                            patches[pretty_name] = (value == "1")
+        except Exception as e:
+            print(f"Error parsing patches file: {e}")
+
+        return patches
+
+    def create_patches_file(self):
+        """Create a new patches.h file if it doesn't exist"""
         if not self.dwm_path:
-            return False, "DWM source directory not found"
-            
+            return
+
+        patches_file = os.path.join(self.dwm_path, "patches.h")
+        default_content = """/* DWM patches configuration */
+/* This file is auto-generated by DWM Studio */
+/* 1 = enabled, 0 = disabled */
+
+#define ALPHA_PATCH 0
+#define ATTACHASIDE_PATCH 0
+#define AUTOSTART_PATCH 0
+#define CFACTS_PATCH 0
+#define COLORBAR_PATCH 0
+#define CYCLELAYOUTS_PATCH 0
+#define FIBONACCI_PATCH 0
+#define FULLGAPS_PATCH 0
+#define PERTAG_PATCH 0
+#define SCRATCHPADS_PATCH 0
+#define SYSTRAY_PATCH 0
+#define VANITYGAPS_PATCH 0
+"""
         try:
-            # Create backup before building
-            if not self.create_backup():
-                return False, "Backup creation failed"
-                
-            # Build commands
-            commands = [
-                ['sudo', '-S', 'make', 'clean'],
-                ['sudo', '-S', 'make'],
-                ['sudo', '-S', 'make', 'install']
-            ]
-            
-            for cmd in commands:
-                process = subprocess.Popen(
-                    cmd,
-                    cwd=self.dwm_path,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
-                
-                # Send password to sudo
-                stdout, stderr = process.communicate(input=f"{password}\n")
-                
-                if process.returncode != 0:
-                    return False, f"Command failed: {stderr}"
-                    
-            return True, "Build completed successfully"
-            
+            with open(patches_file, "w") as f:
+                f.write(default_content)
+            print(f"Created new patches.h file at {patches_file}")
         except Exception as e:
-            return False, f"Build failed: {str(e)}"
-
-    def parse_keybinds(self):
-        keybinds = []
-        if not self.config_files:
-            return keybinds
-
-        # Enhanced regex pattern for keybindings
-        pattern = r'{\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*(?:{?\.?i?\s*=\s*)?([^}]+)}\s*},'
-        
-        for file_content in self.config_files.values():
-            for match in re.finditer(pattern, file_content):
-                mod = match.group(1).strip()
-                key = match.group(2).strip()
-                func = match.group(3).strip()
-                arg = match.group(4).strip()
-                
-                # Parse SHCMD commands
-                if 'SHCMD' in arg:
-                    arg = re.search(r'SHCMD\("(.+?)"\)', arg)
-                    if arg:
-                        arg = arg.group(1)
-                
-                keybind = {
-                    'mod': mod,
-                    'key': key,
-                    'function': func,
-                    'argument': arg
-                }
-                keybinds.append(keybind)
-        
-        return keybinds
+            print(f"Error creating patches file: {e}")
 
     def parse_config(self):
+        """Parse configuration from config.h/config.def.h"""
         config = {}
         if not self.config_files:
             return config
-            
+
         patterns = [
             (r'#define\s+(\w+)\s+(.+?)(?:/\*.*\*/)?(?:\n|$)', 'define'),
             (r'static\s+(?:const\s+)?(?:unsigned\s+)?int\s+(\w+)\s*=\s*(.+?);', 'int'),
             (r'static\s+const\s+char\s+(\w+)\[\]\s*=\s*"([^"]+)";', 'string'),
+            (r'static\s+const\s+char\s+\*(\w+)\[\]\s*=\s*\{([^}]+)\}', 'string_array'),
+            (r'static\s+float\s+(\w+)\s*=\s*(.+?);', 'float'),
         ]
-        
+
         for file_content in self.config_files.values():
             for pattern, type_ in patterns:
                 for match in re.finditer(pattern, file_content, re.MULTILINE):
                     key = match.group(1)
                     value = match.group(2).strip()
                     config[key] = {'value': value, 'type': type_}
-        
+
         return config
 
     def organize_config(self):
+        """Organize configuration into categories"""
         # Appearance settings
         appearance_settings = {
             'borderpx': ('Border Width', 'int'),
@@ -167,8 +191,12 @@ class DWMConfig:
             'focusonwheel': ('Focus on Mouse Wheel', 'bool'),
             'vertpad': ('Vertical Padding', 'int'),
             'sidepad': ('Side Padding', 'int'),
+            'barheight': ('Bar Height', 'int'),
+            'barhighpriority': ('Bar High Priority', 'bool'),
+            'mfact': ('Master Area Factor', 'float')
         }
-        
+
+        # Add found appearance settings
         self.categories['Appearance'] = [
             {
                 'name': name,
@@ -177,189 +205,974 @@ class DWMConfig:
                 'value': self.config.get(key, {}).get('value', '0')
             }
             for key, (name, type_) in appearance_settings.items()
+            if key in self.config
         ]
 
-        # Parse keybindings
+        # Add keybindings
         self.categories['Keybinds'] = self.parse_keybinds()
+
+        # Parse window rules
+        self.categories['Rules'] = self.parse_rules()
+
+        # Parse scratchpads if available
+        if any("SCRATCHPAD" in key for key in self.config.keys()):
+            self.categories['Scratchpads'] = self.parse_scratchpads()
+
+        # Parse autostart if the patch is enabled
+        if self.patches.get('Autostart', False):
+            self.categories['Autostart'] = self.parse_autostart()
+
+    def parse_keybinds(self):
+        """Parse keyboard shortcuts from config"""
+        keybinds = []
+        if not self.config_files:
+            return keybinds
+
+        pattern = r'{\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*(?:{?\.?i?\s*=\s*)?([^}]+)}\s*},'
+        for file_content in self.config_files.values():
+            # Find the keys[] array
+            keys_array = re.search(r'static\s+Key\s+keys\[\]\s*=\s*\{([^;]+)\};', file_content, re.DOTALL)
+            if not keys_array:
+                continue
+
+            keys_content = keys_array.group(1)
+            for match in re.finditer(pattern, keys_content):
+                mod = match.group(1).strip()
+                key = match.group(2).strip()
+                func = match.group(3).strip()
+                arg = match.group(4).strip()
+
+                # Extract shell commands
+                if 'SHCMD' in arg:
+                    arg_search = re.search(r'SHCMD\("(.+?)"\)', arg)
+                    if arg_search:
+                        arg = arg_search.group(1)
+
+                # Create a more readable description
+                description = self.get_keybind_description(func, arg)
+
+                keybind = {
+                    'mod': mod,
+                    'key': key,
+                    'function': func,
+                    'argument': arg,
+                    'description': description
+                }
+                keybinds.append(keybind)
+
+        return keybinds
+
+    def get_keybind_description(self, func, arg):
+        """Create a human-readable description for keybindings"""
+        if func == 'spawn':
+            return f"Launch: {arg}"
+        elif func == 'tag':
+            return f"Go to tag {arg}"
+        elif func == 'toggletag':
+            return f"Toggle tag {arg}"
+        elif func == 'view':
+            return f"View tag {arg}"
+        elif func == 'setlayout':
+            return f"Set layout {arg}"
+        elif func == 'setmfact':
+            return f"Set master factor to {arg}"
+        elif func == 'togglebar':
+            return "Toggle status bar"
+        elif func == 'focusstack':
+            return "Change focus" if arg == "0" else "Reverse focus"
+        elif func == 'incnmaster':
+            return "Increase master count" if arg == "+1" else "Decrease master count"
+        elif 'scratchpad' in func.lower():
+            return f"Toggle scratchpad {arg}"
+        else:
+            return f"{func.replace('_', ' ').title()} ({arg})"
+
+    def parse_rules(self):
+        """Parse window rules from config"""
+        rules = []
+        if not self.config_files:
+            return rules
+
+        pattern = r'{\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+)(?:,\s*([^}]+))?\s*},'
+        for file_content in self.config_files.values():
+            # Find the rules[] array
+            rules_array = re.search(r'static\s+Rule\s+rules\[\]\s*=\s*\{([^;]+)\};', file_content, re.DOTALL)
+            if not rules_array:
+                continue
+
+            rules_content = rules_array.group(1)
+            for match in re.finditer(pattern, rules_content):
+                class_name = match.group(1).strip().strip('"')
+                instance = match.group(2).strip().strip('"')
+                title = match.group(3).strip().strip('"')
+                tags = match.group(4).strip()
+                isfloating = match.group(5).strip()
+                monitor = match.group(6).strip()
+
+                rule = {
+                    'class': class_name,
+                    'instance': instance,
+                    'title': title,
+                    'tags': tags,
+                    'isfloating': isfloating == '1',
+                    'monitor': monitor
+                }
+                rules.append(rule)
+
+        return rules
+
+    def parse_scratchpads(self):
+        """Parse scratchpad configurations if available"""
+        scratchpads = []
+        if not self.config_files:
+            return scratchpads
+
+        pattern = r'static\s+const\s+char\s+\*\s*([a-zA-Z0-9_]+)\[\]\s*=\s*\{\s*"([^"]+)"'
+        for file_content in self.config_files.values():
+            for match in re.finditer(pattern, file_content):
+                if "scratchpad" in match.group(1).lower():
+                    name = match.group(1)
+                    command = match.group(2)
+                    scratchpad = {
+                        'name': name,
+                        'command': command
+                    }
+                    scratchpads.append(scratchpad)
+
+        return scratchpads
+
+    def parse_autostart(self):
+        """Parse autostart script if available"""
+        autostart_entries = []
+        if not self.dwm_path:
+            return autostart_entries
+
+        autostart_path = os.path.join(self.dwm_path, "autostart.sh")
+        if not os.path.exists(autostart_path):
+            return autostart_entries
+
+        try:
+            with open(autostart_path, 'r') as f:
+                content = f.read()
+                # Extract commands from the script
+                lines = content.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if line and not line.startswith('#') and not line.startswith('(') and not line.startswith('}'):
+                        if '&' in line:
+                            line = line.split('&')[0].strip()
+                        autostart_entries.append({
+                            'command': line,
+                            'enabled': True
+                        })
+        except Exception as e:
+            print(f"Error parsing autostart script: {e}")
+
+        return autostart_entries
+
+    def get_stabilized_config(self):
+        """Get the current configuration file content"""
+        if "config.h" in self.config_files:
+            return self.config_files["config.h"]
+        elif "config.def.h" in self.config_files:
+            return self.config_files["config.def.h"]
+        return "No configuration file found."
+
+    def save_config(self):
+        """Save configuration changes to config.h"""
+        if not self.dwm_path:
+            return False, "DWM path not set"
+
+        config_path = os.path.join(self.dwm_path, "config.h")
+        if not os.path.exists(config_path):
+            config_def_path = os.path.join(self.dwm_path, "config.def.h")
+            if os.path.exists(config_def_path):
+                # Create config.h from config.def.h if it doesn't exist
+                shutil.copy2(config_def_path, config_path)
+            else:
+                return False, "No configuration template found"
+
+        try:
+            with open(config_path, 'r') as f:
+                content = f.read()
+
+            # Update all config values
+            for key, value_data in self.config.items():
+                value = value_data['value']
+                type_ = value_data['type']
+
+                if type_ == 'define':
+                    pattern = rf'#define\s+{key}\s+[^\n]+'
+                    replacement = f'#define {key} {value}'
+                elif type_ == 'int':
+                    pattern = rf'static\s+(?:const\s+)?(?:unsigned\s+)?int\s+{key}\s*=\s*[^;]+;'
+                    replacement = f'static const int {key} = {value};'
+                elif type_ == 'string':
+                    pattern = rf'static\s+const\s+char\s+{key}\[\]\s*=\s*"[^"]*";'
+                    replacement = f'static const char {key}[] = "{value}";'
+                elif type_ == 'float':
+                    pattern = rf'static\s+float\s+{key}\s*=\s*[^;]+;'
+                    replacement = f'static float {key} = {value};'
+                else:
+                    continue
+
+                content = re.sub(pattern, replacement, content)
+
+            # Save updated content
+            with open(config_path, 'w') as f:
+                f.write(content)
+
+            self.config_files["config.h"] = content
+            return True, "Configuration saved successfully"
+
+        except Exception as e:
+            return False, f"Error saving configuration: {str(e)}"
+
+    def update_keybinds(self, keybinds):
+        """Update keybindings in config.h"""
+        if not self.dwm_path:
+            return False, "DWM path not set"
+
+        config_path = os.path.join(self.dwm_path, "config.h")
+        if not os.path.exists(config_path):
+            return False, "Configuration file not found"
+
+        try:
+            with open(config_path, 'r') as f:
+                content = f.read()
+
+            # Find the keys[] array
+            keys_array = re.search(r'static\s+Key\s+keys\[\]\s*=\s*\{([^;]+)\};', content, re.DOTALL)
+            if not keys_array:
+                return False, "Keys array not found in configuration"
+
+            # Build new keys array
+            new_keys = "static Key keys[] = {\n"
+            for kb in keybinds:
+                arg = kb['argument']
+                func = kb['function']
+
+                # Format the argument based on function
+                if func == 'spawn' and not arg.startswith("SHCMD"):
+                    arg = f'SHCMD("{arg}")'
+
+                new_keys += f'\t{{ {kb["mod"]}, {kb["key"]}, {kb["function"]}, {arg} }},\n'
+            new_keys += "};"
+
+            # Replace the keys array
+            new_content = content.replace(keys_array.group(0), new_keys)
+
+            # Save updated content
+            with open(config_path, 'w') as f:
+                f.write(new_content)
+
+            self.config_files["config.h"] = new_content
+            self.categories['Keybinds'] = keybinds
+            return True, "Keybindings updated successfully"
+
+        except Exception as e:
+            return False, f"Error updating keybindings: {str(e)}"
+
+    def update_rules(self, rules):
+        """Update window rules in config.h"""
+        if not self.dwm_path:
+            return False, "DWM path not set"
+
+        config_path = os.path.join(self.dwm_path, "config.h")
+        if not os.path.exists(config_path):
+            return False, "Configuration file not found"
+
+        try:
+            with open(config_path, 'r') as f:
+                content = f.read()
+
+            # Find the rules[] array
+            rules_array = re.search(r'static\s+Rule\s+rules\[\]\s*=\s*\{([^;]+)\};', content, re.DOTALL)
+            if not rules_array:
+                return False, "Rules array not found in configuration"
+
+            # Build new rules array
+            new_rules = "static Rule rules[] = {\n"
+            for rule in rules:
+                class_name = f'"{rule["class"]}"' if rule["class"] else "NULL"
+                instance = f'"{rule["instance"]}"' if rule["instance"] else "NULL"
+                title = f'"{rule["title"]}"' if rule["title"] else "NULL"
+                isfloating = "1" if rule.get("isfloating", False) else "0"
+
+                new_rules += f'\t{{ {class_name}, {instance}, {title}, {rule["tags"]}, {isfloating}, {rule["monitor"]} }},\n'
+            new_rules += "};"
+
+            # Replace the rules array
+            new_content = content.replace(rules_array.group(0), new_rules)
+
+            # Save updated content
+            with open(config_path, 'w') as f:
+                f.write(new_content)
+
+            self.config_files["config.h"] = new_content
+            self.categories['Rules'] = rules
+            return True, "Window rules updated successfully"
+
+        except Exception as e:
+            return False, f"Error updating window rules: {str(e)}"
+
+    def update_scratchpads(self, scratchpads):
+        """Update scratchpad configurations in config.h"""
+        if not self.dwm_path or not scratchpads:
+            return False, "DWM path not set or no scratchpads"
+
+        config_path = os.path.join(self.dwm_path, "config.h")
+        if not os.path.exists(config_path):
+            return False, "Configuration file not found"
+
+        try:
+            with open(config_path, 'r') as f:
+                content = f.read()
+
+            # Update each scratchpad command
+            for scratchpad in scratchpads:
+                name = scratchpad['name']
+                command = scratchpad['command']
+
+                pattern = rf'static\s+const\s+char\s+\*{name}\[\]\s*=\s*\{{\s*"[^"]+"\s*\}};'
+                replacement = f'static const char *{name}[] = {{ "{command}" }};'
+
+                content = re.sub(pattern, replacement, content)
+
+            # Save updated content
+            with open(config_path, 'w') as f:
+                f.write(content)
+
+            self.config_files["config.h"] = content
+            self.categories['Scratchpads'] = scratchpads
+            return True, "Scratchpads updated successfully"
+
+        except Exception as e:
+            return False, f"Error updating scratchpads: {str(e)}"
+
+    def update_autostart(self, commands):
+        """Update autostart.sh script"""
+        if not self.dwm_path:
+            return False, "DWM path not set"
+
+        autostart_path = os.path.join(self.dwm_path, "autostart.sh")
+
+        try:
+            content = "#!/bin/sh\n\n# Autostart script for DWM\n# Generated by DWM Studio\n\n"
+
+            for cmd in commands:
+                if cmd.get('enabled', True):
+                    content += f"{cmd['command']} &\n"
+                else:
+                    content += f"# {cmd['command']} &\n"
+
+            with open(autostart_path, 'w') as f:
+                f.write(content)
+
+            # Make it executable
+            os.chmod(autostart_path, 0o755)
+
+            return True, "Autostart script updated successfully"
+
+        except Exception as e:
+            return False, f"Error updating autostart script: {str(e)}"
+
+    def build_dwm(self, sudo_password=None):
+        """Build DWM from source"""
+        if not self.dwm_path:
+            return False, "DWM path not found"
+
+        try:
+            original_dir = os.getcwd()
+            os.chdir(self.dwm_path)
+
+            build_commands = ["make clean", "make"]
+            if sudo_password:
+                install_cmd = "make install"
+                build_commands.append(install_cmd)
+
+            output = []
+            for cmd in build_commands:
+                if sudo_password and "install" in cmd:
+                    full_cmd = f"echo {sudo_password} | sudo -S {cmd}"
+                else:
+                    full_cmd = cmd
+
+                result = subprocess.run(
+                    full_cmd,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+
+                output.append(f"Command: {cmd}")
+                output.append(f"Return code: {result.returncode}")
+                output.append(f"Output: {result.stdout}")
+
+                if result.stderr:
+                    output.append(f"Error: {result.stderr}")
+
+                if result.returncode != 0:
+                    os.chdir(original_dir)
+                    return False, "\n".join(output)
+
+            os.chdir(original_dir)
+            return True, "\n".join(output)
+
+        except Exception as e:
+            return False, f"Build error: {str(e)}"
+
+    def create_backup(self):
+        """Create a backup of the DWM configuration"""
+        if not self.dwm_path:
+            return False, "DWM path not set"
+
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_name = f"dwm_backup_{timestamp}"
+        backup_path = os.path.join(self.backup_dir, backup_name)
+
+        try:
+            os.makedirs(backup_path, exist_ok=True)
+
+            # Copy configuration files
+            for filename in ['config.h', 'config.def.h', 'patches.h']:
+                src_path = os.path.join(self.dwm_path, filename)
+                if os.path.exists(src_path):
+                    shutil.copy2(src_path, backup_path)
+
+            # Copy autostart.sh if it exists
+            autostart_path = os.path.join(self.dwm_path, 'autostart.sh')
+            if os.path.exists(autostart_path):
+                shutil.copy2(autostart_path, backup_path)
+
+            # Create metadata
+            metadata = {
+                'created': timestamp,
+                'dwm_path': self.dwm_path,
+                'files': [f for f in os.listdir(backup_path)]
+            }
+
+            with open(os.path.join(backup_path, 'metadata.json'), 'w') as f:
+                json.dump(metadata, f, indent=4)
+
+            return True, f"Backup created at {backup_path}"
+
+        except Exception as e:
+            return False, f"Backup failed: {str(e)}"
+
+    def list_backups(self):
+        """List available backups"""
+        backups = []
+
+        if not os.path.exists(self.backup_dir):
+            return backups
+
+        for item in os.listdir(self.backup_dir):
+            backup_path = os.path.join(self.backup_dir, item)
+            metadata_path = os.path.join(backup_path, 'metadata.json')
+
+            if os.path.isdir(backup_path) and os.path.exists(metadata_path):
+                try:
+                    with open(metadata_path, 'r') as f:
+                        metadata = json.load(f)
+
+                    created = metadata.get('created', item.replace('dwm_backup_', ''))
+                    dwm_path = metadata.get('dwm_path', 'Unknown')
+                    files = metadata.get('files', [])
+
+                    backups.append({
+                        'name': item,
+                        'path': backup_path,
+                        'created': created,
+                        'dwm_path': dwm_path,
+                        'files': files
+                    })
+                except Exception:
+                    # If metadata is invalid, still include the backup with minimal info
+                    backups.append({
+                        'name': item,
+                        'path': backup_path,
+                        'created': item.replace('dwm_backup_', ''),
+                        'dwm_path': 'Unknown',
+                        'files': []
+                    })
+
+        # Sort by creation time (newest first)
+        backups.sort(key=lambda x: x['created'], reverse=True)
+        return backups
+
+    def restore_backup(self, backup_path):
+        """Restore DWM configuration from backup"""
+        if not self.dwm_path:
+            return False, "DWM path not set"
+
+        if not os.path.exists(backup_path):
+            return False, "Backup not found"
+
+        try:
+            # Create a backup of current configuration first
+            self.create_backup()
+
+            # Copy files from backup to DWM directory
+            for filename in ['config.h', 'config.def.h', 'patches.h', 'autostart.sh']:
+                src_path = os.path.join(backup_path, filename)
+                if os.path.exists(src_path):
+                    shutil.copy2(src_path, self.dwm_path)
+
+            # Reload configuration
+            self.config_files = self.find_config_files()
+            self.patches = self.parse_patches()
+            self.config = self.parse_config()
+            self.organize_config()
+
+            return True, f"Backup restored successfully from: {backup_path}"
+
+        except PermissionError as e:
+            return False, f"Permission error: {str(e)}"
+        except FileNotFoundError as e:
+            return False, f"Required file missing in backup: {str(e)}"
+        except Exception as e:
+            return False, f"Restoration failed: {str(e)}"
+
+    # ---------- GUI Integration Methods ---------- #
+    def get_category_config(self, category):
+        """Return formatted configuration for GUI display"""
+        return {
+            'name': category,
+            'settings': self.categories.get(category, []),
+            'patches': self.patches if category == 'Patches' else None,
+            'backups': self.list_backups() if category == 'Backups' else None
+        }
 
 class ModernConfigurator(Gtk.Window):
     def __init__(self, config):
         super().__init__(title="DWM Studio")
         self.config = config
+        self.current_search = ""
         self.set_default_size(1280, 800)
-        self.set_resizable(True)
-        
-        # Create header bar
-        self.setup_header_bar()
-        
-        # Setup UI
         self.setup_style()
-        self.setup_ui()
-        
-        # Connect signals
-        self.connect("delete-event", Gtk.main_quit)
+        self.init_ui()
+        self.stack = Gtk.Stack()
+        self.connect("destroy", Gtk.main_quit)
 
-    def setup_header_bar(self):
+
+    def init_ui(self):
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+
+        # Header Bar with Actions
         header = Gtk.HeaderBar()
         header.set_show_close_button(True)
-        header.props.title = "DWM Studio"
-        
-        # Search button
-        search_button = Gtk.ToggleButton()
-        search_icon = Gio.ThemedIcon(name="edit-find-symbolic")
-        search_image = Gtk.Image.new_from_gicon(search_icon, Gtk.IconSize.BUTTON)
-        search_button.add(search_image)
-        search_button.connect("toggled", self.on_search_toggled)
-        header.pack_end(search_button)
-        
-        # Build button
-        build_button = Gtk.Button(label="Build")
-        build_button.connect("clicked", self.on_build_clicked)
-        header.pack_start(build_button)
-        
+
+        # Build Button
+        self.build_btn = Gtk.Button.new_from_icon_name("system-run-symbolic", Gtk.IconSize.BUTTON)
+        self.build_btn.connect("clicked", self.on_build_clicked)
+        self.save_btn = Gtk.Button.new_from_icon_name("document-save-symbolic", Gtk.IconSize.BUTTON)
+        self.save_btn.connect("clicked", self.on_save_clicked)
+        header.pack_end(self.save_btn)
+        header.pack_end(self.build_btn)
+
+        # Backup Menu
+        backup_menu = Gtk.MenuButton()
+        backup_menu.set_popup(self.create_backup_popup_menu())
+        backup_menu.set_image(Gtk.Image.new_from_icon_name("document-save-symbolic", Gtk.IconSize.BUTTON))
+        header.pack_start(backup_menu)
+
         self.set_titlebar(header)
+
+        # Main Content
+        paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+
+        # Navigation Sidebar
+        self.sidebar = Gtk.ListBox()
+        self.sidebar.set_size_request(200, -1)
+        for category in ['Appearance', 'Keybinds', 'Rules', 'Patches', 'Backups']:
+            row = Gtk.ListBoxRow()
+            box = Gtk.Box(spacing=6)
+            icon = Gio.ThemedIcon(name=self.get_category_icon(category))
+            image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON)
+            label = Gtk.Label(label=category, xalign=0)
+            box.pack_start(image, False, False, 0)
+            box.pack_start(label, True, True, 0)
+            row.add(box)
+            self.sidebar.add(row)
+
+        # Main Stack
+        self.stack.add_titled(self.create_appearance_ui(), "appearance", "Appearance")
+        self.stack.add_titled(self.create_keybinds_ui(), "keybinds", "Keybinds")
+        self.stack.add_titled(self.create_rules_ui(), "rules", "Rules")
+        self.stack.add_titled(self.create_patches_ui(), "patches", "Patches")
+        self.stack.add_titled(self.create_backups_ui(), "backups", "Backups")
+
+        paned.add1(self.sidebar)
+        paned.add2(self.stack)
+        main_box.pack_start(paned, True, True, 0)
+
+        # Connect signals
+        self.sidebar.connect("row-activated", self.on_navigation_changed)
+
+        self.add(main_box)
+
+    def create_backup_popup_menu(self):
+        """Create the backup dropdown menu"""
+        menu = Gtk.Menu()
+
+        create_item = Gtk.MenuItem(label="Create Backup")
+        create_item.connect("activate", self.on_create_backup)
+        menu.append(create_item)
+
+        restore_item = Gtk.MenuItem(label="Restore Backup")
+        restore_item.connect("activate", self.on_restore_backup_dialog)
+        menu.append(restore_item)
+
+        menu.show_all()
+        return menu
+
+
+
+        def on_restore_backup_dialog(self, widget):
+            """Show restore backup dialog"""
+            dialog = Gtk.FileChooserDialog(
+                title="Select Backup",
+                parent=self,
+                action=Gtk.FileChooserAction.SELECT_FOLDER
+            )
+            dialog.add_buttons(
+                Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+                Gtk.STOCK_OPEN, Gtk.ResponseType.OK
+            )
+
+            response = dialog.run()
+            if response == Gtk.ResponseType.OK:
+                backup_path = dialog.get_filename()
+                success, message = self.config.restore_backup(backup_path)
+                self.show_status_message("Restore Status", message)
+
+            dialog.destroy()
+
+
+
+        def create_rules_ui(self):
+            scrolled = Gtk.ScrolledWindow()
+            self.rules_list = Gtk.ListBox()
+
+            config = self.config.get_category_config('Rules')
+            for rule in config['settings']:
+                row = Gtk.ListBoxRow()
+                box = Gtk.Box(spacing=6, margin=3)
+
+                class_entry = Gtk.Entry(text=rule.get('class', ''), width_chars=15)
+                class_entry.set_placeholder_text("Class")
+
+                instance_entry = Gtk.Entry(text=rule.get('instance', ''), width_chars=15)
+                instance_entry.set_placeholder_text("Instance")
+
+                title_entry = Gtk.Entry(text=rule.get('title', ''), width_chars=15)
+                title_entry.set_placeholder_text("Title")
+
+                tags_entry = Gtk.Entry(text=str(rule.get('tags', 0)), width_chars=8)
+                tags_entry.set_placeholder_text("Tags")
+
+                floating_switch = Gtk.Switch(active=rule.get('isfloating', False))
+                floating_label = Gtk.Label(label="Float")
+
+                monitor_entry = Gtk.Entry(text=str(rule.get('monitor', -1)), width_chars=5)
+                monitor_entry.set_placeholder_text("Monitor")
+
+                delete_btn = Gtk.Button.new_from_icon_name("edit-delete-symbolic", Gtk.IconSize.BUTTON)
+
+                box.pack_start(class_entry, False, False, 0)
+                box.pack_start(instance_entry, False, False, 0)
+                box.pack_start(title_entry, False, False, 0)
+                box.pack_start(tags_entry, False, False, 0)
+                box.pack_start(floating_label, False, False, 0)
+                box.pack_start(floating_switch, False, False, 0)
+                box.pack_start(monitor_entry, False, False, 0)
+                box.pack_start(delete_btn, False, False, 0)
+                row.add(box)
+                self.rules_list.add(row)
+
+            add_btn = Gtk.Button(label="Add Rule", margin=6)
+            add_btn.connect("clicked", self.on_add_rule)
+
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            box.pack_start(self.rules_list, True, True, 0)
+            box.pack_start(add_btn, False, False, 0)
+            scrolled.add(box)
+
+            return scrolled
+
+
+    def create_appearance_ui(self):
+        scrolled = Gtk.ScrolledWindow()
+        grid = Gtk.Grid(column_spacing=12, row_spacing=12, margin=24)
+
+        config = self.config.get_category_config('Appearance')
+        for idx, setting in enumerate(config['settings']):
+            label = Gtk.Label(label=setting['name'], xalign=0)
+            widget = self.create_setting_widget(setting)
+            grid.attach(label, 0, idx, 1, 1)
+            grid.attach(widget, 1, idx, 1, 1)
+
+        scrolled.add(grid)
+        return scrolled
+
+    def create_setting_widget(self, setting):
+        if setting['type'] == 'bool':
+            widget = Gtk.Switch(active=setting['value'] == '1')
+            widget.connect("notify::active", self.on_setting_changed, setting)
+        elif setting['type'] == 'float':
+            adj = Gtk.Adjustment(value=float(setting['value']), lower=0, upper=1, step_increment=0.05)
+            widget = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=adj)
+            widget.set_digits(2)
+            widget.connect("value-changed", self.on_setting_changed, setting)
+        else:
+            widget = Gtk.Entry(text=setting['value'])
+            widget.connect("changed", self.on_setting_changed, setting)
+        return widget
+
+    def create_keybinds_ui(self):
+        scrolled = Gtk.ScrolledWindow()
+        self.keybind_list = Gtk.ListBox()
+
+        config = self.config.get_category_config('Keybinds')
+        for kb in config['settings']:
+            row = Gtk.ListBoxRow()
+            box = Gtk.Box(spacing=6, margin=3)
+
+            mod_entry = Gtk.Entry(text=kb['mod'], width_chars=8)
+            key_entry = Gtk.Entry(text=kb['key'], width_chars=4)
+            func_entry = Gtk.Entry(text=kb['function'])
+            arg_entry = Gtk.Entry(text=kb['argument'])
+            delete_btn = Gtk.Button.new_from_icon_name("edit-delete-symbolic", Gtk.IconSize.BUTTON)
+
+            box.pack_start(mod_entry, False, False, 0)
+            box.pack_start(key_entry, False, False, 0)
+            box.pack_start(func_entry, False, False, 0)
+            box.pack_start(arg_entry, True, True, 0)
+            box.pack_start(delete_btn, False, False, 0)
+            row.add(box)
+            self.keybind_list.add(row)
+
+        add_btn = Gtk.Button(label="Add Keybind", margin=6)
+        add_btn.connect("clicked", self.on_add_keybind)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.pack_start(self.keybind_list, True, True, 0)
+        box.pack_start(add_btn, False, False, 0)
+        scrolled.add(box)
+        return scrolled
+
+    def create_patches_ui(self):
+        scrolled = Gtk.ScrolledWindow()
+        self.patch_list = Gtk.ListBox()
+
+        config = self.config.get_category_config('Patches')
+        for patch, enabled in config['patches'].items():
+            row = Gtk.ListBoxRow()
+            box = Gtk.Box(spacing=6, margin=3)
+
+            label = Gtk.Label(label=patch, xalign=0)
+            switch = Gtk.Switch(active=enabled)
+            switch.connect("notify::active", self.on_patch_toggled, patch)
+
+            box.pack_start(label, True, True, 0)
+            box.pack_start(switch, False, False, 0)
+            row.add(box)
+            self.patch_list.add(row)
+
+        scrolled.add(self.patch_list)
+        return scrolled
+
+    def create_backups_ui(self):
+        scrolled = Gtk.ScrolledWindow()
+        self.backup_list = Gtk.ListBox()
+
+        for backup in self.config.list_backups():
+            row = Gtk.ListBoxRow()
+            box = Gtk.Box(spacing=6, margin=3)
+
+            label = Gtk.Label(label=backup['name'], xalign=0)
+            date_label = Gtk.Label(label=backup['created'], xalign=1)
+            restore_btn = Gtk.Button.new_from_icon_name("document-revert-symbolic", Gtk.IconSize.BUTTON)
+
+            box.pack_start(label, True, True, 0)
+            box.pack_start(date_label, False, False, 0)
+            box.pack_start(restore_btn, False, False, 0)
+            row.add(box)
+            self.backup_list.add(row)
+
+        new_btn = Gtk.Button(label="New Backup", margin=6)
+        new_btn.connect("clicked", self.on_create_backup)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.pack_start(self.backup_list, True, True, 0)
+        box.pack_start(new_btn, False, False, 0)
+        scrolled.add(box)
+        return scrolled
+
+    # ---------- Event Handlers ---------- #
+    def on_navigation_changed(self, listbox, row):
+        categories = ['appearance', 'keybinds', 'rules', 'patches', 'backups']
+        self.stack.set_visible_child_name(categories[row.get_index()])
+
+    def on_setting_changed(self, widget, *args):
+        # Handle configuration updates
+        pass
+
+    def on_patch_toggled(self, switch, gparam, patch_name):
+        # Handle patch updates
+        pass
+
+    def on_create_backup(self, button):
+        success, message = self.config.create_backup()
+        self.show_status_message("Backup Created" if success else "Backup Failed", message)
+
+
+    def on_build_clicked(self, button):
+
+        # Handle build process
+            pass
+
+    def on_save_clicked(self, button):
+        """Save all changes to config"""
+        current_page = self.stack.get_visible_child_name()
+
+        if current_page == "keybinds":
+            keybinds = []
+            for row in self.keybind_list.get_children():
+                box = row.get_child()
+                widgets = box.get_children()
+
+                if len(widgets) >= 4:  # Make sure we have the expected widgets
+                    mod = widgets[0].get_text()
+                    key = widgets[1].get_text()
+                    func = widgets[2].get_text()
+                    arg = widgets[3].get_text()
+
+                    keybinds.append({
+                        'mod': mod,
+                        'key': key,
+                        'function': func,
+                        'argument': arg,
+                        'description': self.config.get_keybind_description(func, arg)
+                    })
+
+            success, message = self.config.update_keybinds(keybinds)
+            self.show_status_message("Save Status", message)
+
+        elif current_page == "rules":
+            rules = []
+            for row in self.rules_list.get_children():
+                box = row.get_child()
+                widgets = box.get_children()
+
+                if len(widgets) >= 7:  # Make sure we have the expected widgets
+                    class_name = widgets[0].get_text()
+                    instance = widgets[1].get_text()
+                    title = widgets[2].get_text()
+                    tags = widgets[3].get_text()
+                    floating = widgets[5].get_active()  # Switch is at index 5
+                    monitor = widgets[6].get_text()
+
+                    rules.append({
+                        'class': class_name,
+                        'instance': instance,
+                        'title': title,
+                        'tags': tags,
+                        'isfloating': floating,
+                        'monitor': monitor
+                    })
+
+            success, message = self.config.update_rules(rules)
+            self.show_status_message("Save Status", message)
+
+        elif current_page == "appearance":
+            # Save appearance settings
+            success, message = self.config.save_config()
+            self.show_status_message("Save Status", message)
+
+        elif current_page == "patches":
+            # For now, just show a message - patch toggling is handled separately
+            self.show_status_message("Info", "Patches changes will be applied on next build")
+
+    def on_add_keybind(self, button):
+        """Add a new keybinding row"""
+        row = Gtk.ListBoxRow()
+        box = Gtk.Box(spacing=6, margin=3)
+
+        mod_entry = Gtk.Entry(text="MODKEY", width_chars=8)
+        key_entry = Gtk.Entry(text="XK_space", width_chars=4)
+        func_entry = Gtk.Entry(text="spawn")
+        arg_entry = Gtk.Entry(text="dmenu_run")
+        delete_btn = Gtk.Button.new_from_icon_name("edit-delete-symbolic", Gtk.IconSize.BUTTON)
+        delete_btn.connect("clicked", self.on_delete_row, row)
+
+        box.pack_start(mod_entry, False, False, 0)
+        box.pack_start(key_entry, False, False, 0)
+        box.pack_start(func_entry, False, False, 0)
+        box.pack_start(arg_entry, True, True, 0)
+        box.pack_start(delete_btn, False, False, 0)
+        row.add(box)
+        self.keybind_list.add(row)
+        self.keybind_list.show_all()
+
+
+    def on_add_rule(self, button):
+        """Add a new window rule row"""
+        row = Gtk.ListBoxRow()
+        box = Gtk.Box(spacing=6, margin=3)
+
+        class_entry = Gtk.Entry(width_chars=15)
+        class_entry.set_placeholder_text("Class")
+
+        instance_entry = Gtk.Entry(width_chars=15)
+        instance_entry.set_placeholder_text("Instance")
+
+        title_entry = Gtk.Entry(width_chars=15)
+        title_entry.set_placeholder_text("Title")
+
+        tags_entry = Gtk.Entry(text="0", width_chars=8)
+        tags_entry.set_placeholder_text("Tags")
+
+        floating_switch = Gtk.Switch()
+        floating_label = Gtk.Label(label="Float")
+
+        monitor_entry = Gtk.Entry(text="-1", width_chars=5)
+        monitor_entry.set_placeholder_text("Monitor")
+
+        delete_btn = Gtk.Button.new_from_icon_name("edit-delete-symbolic", Gtk.IconSize.BUTTON)
+        delete_btn.connect("clicked", self.on_delete_row, row)
+
+        box.pack_start(class_entry, False, False, 0)
+        box.pack_start(instance_entry, False, False, 0)
+        box.pack_start(title_entry, False, False, 0)
+        box.pack_start(tags_entry, False, False, 0)
+        box.pack_start(floating_label, False, False, 0)
+        box.pack_start(floating_switch, False, False, 0)
+        box.pack_start(monitor_entry, False, False, 0)
+        box.pack_start(delete_btn, False, False, 0)
+        row.add(box)
+        self.rules_list.add(row)
+        self.rules_list.show_all()
+
+    def on_delete_row(self, button, row):
+     """Remove a row from a ListBox"""
+    container = row.get_parent()
+    container.remove(row)
 
     def setup_style(self):
         css = b"""
-        /* Arc Browser Dark Theme */
-        @define-color bg_color #2f343f;
-        @define-color fg_color #d3dae3;
-        @define-color selected_bg_color #5294e2;
-        @define-color selected_fg_color #ffffff;
-        @define-color error_color #cc575d;
-        @define-color success_color #68b723;
-        @define-color warning_color #f6d32d;
-        
+        /* Modern dark theme styling */
         window {
-            background-color: @bg_color;
-            color: @fg_color;
+            background-color: #2d2d2d;
+            color: #ffffff;
         }
-        
-        headerbar {
-            background: linear-gradient(to bottom, #353945, #2f343f);
-            border-bottom: 1px solid #262b33;
+        list-row {
             padding: 6px;
-        }
-        
-        headerbar button {
-            background: linear-gradient(to bottom, #404552, #383c4a);
-            border: 1px solid #262b33;
-            border-radius: 3px;
-            color: @fg_color;
-            padding: 4px 8px;
-        }
-        
-        headerbar button:hover {
-            background: linear-gradient(to bottom, #454c5c, #3d4251);
-        }
-        
-        .search-bar {
-            background-color: #383c4a;
-            border-bottom: 1px solid #262b33;
-            padding: 8px;
-        }
-        
-        .search-entry {
-            background-color: #404552;
-            color: @fg_color;
-            border: 1px solid #2b2e39;
-            border-radius: 3px;
-            padding: 6px;
-        }
-        
-        .sidebar {
-            background-color: #353945;
-            border-right: 1px solid #262b33;
-        }
-        
-        .sidebar button {
-            background: transparent;
-            border: none;
-            border-radius: 0;
-            color: @fg_color;
-            padding: 8px 12px;
-            margin: 1px 0;
-        }
-        
-        .sidebar button:hover {
-            background-color: alpha(@selected_bg_color, 0.1);
-        }
-        
-        .sidebar button:checked {
-            background-color: @selected_bg_color;
-            color: @selected_fg_color;
-        }
-        
-        .content-area {
-            background-color: #2f343f;
-            padding: 16px;
-        }
-        
-        .settings-row {
-            padding: 12px;
-            border-bottom: 1px solid #262b33;
-        }
-        
-        .settings-row:hover {
-            background-color: alpha(@selected_bg_color, 0.1);
-        }
-        
-        entry {
-            background-color: #404552;
-            color: @fg_color;
-            border: 1px solid #2b2e39;
-            border-radius: 3px;
-            padding: 6px;
-        }
-        
-        switch {
-            background-color: #404552;
-            border: 1px solid #2b2e39;
-            border-radius: 12px;
-            min-width: 48px;
-            min-height: 24px;
-        }
-        
-        switch:checked {
-            background-color: @selected_bg_color;
-        }
-        
-        .keybind-row {
-            background-color: #383c4a;
-            border-radius: 3px;
-            margin: 4px 0;
-            padding: 8px;
-        }
-        
-        .keybind-row entry {
-            margin: 0 4px;
-        }
-        
-        scrolledwindow {
-            border: none;
-        }
-        
-        scrolledwindow undershoot {
-            background: none;
-        }
-        
-        scrollbar {
-            background-color: transparent;
-            border: none;
-        }
-        
-        scrollbar slider {
-            background-color: alpha(@fg_color, 0.3);
-            border-radius: 6px;
-            min-width: 8px;
-            min-height: 8px;
-        }
-        
-        scrollbar slider:hover {
-            background-color: alpha(@fg_color, 0.5);
+            border-bottom: 1px solid #404040;
         }
         """
-
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
         Gtk.StyleContext.add_provider_for_screen(
@@ -368,286 +1181,31 @@ class ModernConfigurator(Gtk.Window):
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
 
-    def setup_ui(self):
-        # Main container
-        self.main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        
-        # Search bar (initially hidden)
-        self.search_bar = Gtk.SearchBar()
-        self.search_bar.get_style_context().add_class('search-bar')
-        self.search_entry = Gtk.SearchEntry()
-        self.search_entry.get_style_context().add_class('search-entry')
-        self.search_entry.connect('search-changed', self.on_search_changed)
-        self.search_bar.add(self.search_entry)
-        self.main_box.pack_start(self.search_bar, False, False, 0)
-        
-        # Content area
-        content_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        
-        # Sidebar
-        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        sidebar.get_style_context().add_class('sidebar')
-        sidebar.set_size_request(200, -1)
-        
-        self.stack = Gtk.Stack()
-        self.stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
-        
-        # Create sidebar buttons and stack pages
-        self.pages = ['General', 'Appearance', 'Keybinds', 'Rules', 'Patches']
-        self.page_buttons = {}
-        
-        for page in self.pages:
-            button = Gtk.Button(label=page)
-            button.connect('clicked', self.on_page_clicked)
-            sidebar.pack_start(button, False, False, 0)
-            self.page_buttons[page] = button
-            
-            # Create stack page
-            page_content = self.create_page_content(page)
-            self.stack.add_named(page_content, page.lower())
-        
-        content_box.pack_start(sidebar, False, False, 0)
-        
-        # Stack container
-        stack_container = Gtk.Box()
-        stack_container.get_style_context().add_class('content-area')
-        stack_container.pack_start(self.stack, True, True, 0)
-        
-        content_box.pack_start(stack_container, True, True, 0)
-        self.main_box.pack_start(content_box, True, True, 0)
-        
-        self.add(self.main_box)
-        self.set_active_page('General')
+    def get_category_icon(self, category):
+        icons = {
+            'Appearance': 'preferences-desktop-display-symbolic',
+            'Keybinds': 'preferences-desktop-keyboard-shortcuts-symbolic',
+            'Rules': 'preferences-system-windows-symbolic',
+            'Patches': 'application-x-addon-symbolic',
+            'Backups': 'document-save-symbolic'
+        }
+        return icons.get(category, 'folder-symbolic')
 
-    def create_page_content(self, page):
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        
-        if page == 'General':
-            box.pack_start(self.create_general_page(), True, True, 0)
-        elif page == 'Appearance':
-            box.pack_start(self.create_appearance_page(), True, True, 0)
-        elif page == 'Keybinds':
-            box.pack_start(self.create_keybinds_page(), True, True, 0)
-        elif page == 'Rules':
-            box.pack_start(self.create_rules_page(), True, True, 0)
-        elif page == 'Patches':
-            box.pack_start(self.create_patches_page(), True, True, 0)
-            
-        scrolled.add(box)
-        return scrolled
-
-    def create_general_page(self):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-        box.set_margin_start(16)
-        box.set_margin_end(16)
-        
-        # DWM Path
-        path_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        path_row.get_style_context().add_class('settings-row')
-        
-        path_label = Gtk.Label(label="DWM Installation Path")
-        path_label.set_halign(Gtk.Align.START)
-        
-        path_entry = Gtk.Entry()
-        path_entry.set_text(self.config.dwm_path or "")
-        path_entry.set_hexpand(True)
-        
-        browse_btn = Gtk.Button(label="Browse")
-        browse_btn.connect("clicked", self.on_browse_clicked)
-        
-        path_row.pack_start(path_label, False, False, 0)
-        path_row.pack_start(path_entry, True, True, 0)
-        path_row.pack_start(browse_btn, False, False, 0)
-        
-        # Backup section
-        backup_frame = Gtk.Frame(label="Backups")
-        backup_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        backup_box.set_margin_top(8)
-        backup_box.set_margin_bottom(8)
-        backup_box.set_margin_start(8)
-        backup_box.set_margin_end(8)
-        
-        backup_btn = Gtk.Button(label="Create Backup")
-        backup_btn.connect("clicked", self.on_backup_clicked)
-        
-        restore_btn = Gtk.Button(label="Restore Backup")
-        restore_btn.connect("clicked", self.on_restore_clicked)
-        
-        backup_box.pack_start(backup_btn, False, False, 0)
-        backup_box.pack_start(restore_btn, False, False, 0)
-        backup_frame.add(backup_box)
-        
-        box.pack_start(path_row, False, False, 0)
-        box.pack_start(backup_frame, False, False, 0)
-        
-        return box
-
-    def create_keybinds_page(self):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_margin_start(16)
-        box.set_margin_end(16)
-        
-        # Add new keybind button
-        add_btn = Gtk.Button(label="Add Keybinding")
-        add_btn.connect("clicked", self.on_add_keybind)
-        box.pack_start(add_btn, False, False, 0)
-        
-        # Keybindings list
-        for keybind in self.config.categories['Keybinds']:
-            row = self.create_keybind_row(keybind)
-            box.pack_start(row, False, False, 0)
-        
-        return box
-
-    def create_keybind_row(self, keybind):
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        row.get_style_context().add_class('keybind-row')
-        
-        # Modifier entry
-        mod_entry = Gtk.Entry()
-        mod_entry.set_text(keybind['mod'])
-        mod_entry.set_width_chars(15)
-        
-        # Key entry
-        key_entry = Gtk.Entry()
-        key_entry.set_text(keybind['key'])
-        key_entry.set_width_chars(15)
-        
-        # Function entry
-        func_entry = Gtk.Entry()
-        func_entry.set_text(keybind['function'])
-        func_entry.set_width_chars(20)
-        
-        # Argument entry
-        arg_entry = Gtk.Entry()
-        arg_entry.set_text(keybind['argument'])
-        arg_entry.set_hexpand(True)
-        
-        # Delete button
-        delete_btn = Gtk.Button()
-        delete_icon = Gio.ThemedIcon(name="edit-delete-symbolic")
-        delete_image = Gtk.Image.new_from_gicon(delete_icon, Gtk.IconSize.BUTTON)
-        delete_btn.add(delete_image)
-        delete_btn.connect("clicked", self.on_delete_keybind, row)
-        
-        row.pack_start(mod_entry, False, False, 0)
-        row.pack_start(key_entry, False, False, 0)
-        row.pack_start(func_entry, False, False, 0)
-        row.pack_start(arg_entry, True, True, 0)
-        row.pack_start(delete_btn, False, False, 0)
-        
-        return row
-
-    def on_build_clicked(self, button):
-        dialog = PasswordDialog(self)
-        response = dialog.run()
-        
-        if response == Gtk.ResponseType.OK:
-            password = dialog.get_password()
-            dialog.destroy()
-            
-            success, message = self.config.build_dwm(password)
-            self.show_message_dialog(
-                "Build Result",
-                "Success" if success else "Error",
-                message
-            )
-        else:
-            dialog.destroy()
-
-    def show_message_dialog(self, title, header, message):
+    def show_status_message(self, title, message):
         dialog = Gtk.MessageDialog(
             transient_for=self,
             flags=0,
             message_type=Gtk.MessageType.INFO,
             buttons=Gtk.ButtonsType.OK,
-            text=header
+            text=title
         )
         dialog.format_secondary_text(message)
-        dialog.set_title(title)
         dialog.run()
         dialog.destroy()
-
-    def on_search_toggled(self, button):
-        self.search_bar.set_search_mode(button.get_active())
-
-    def on_search_changed(self, entry):
-        search_text = entry.get_text().lower()
-        # Implement search functionality here
-        pass
-
-    def on_page_clicked(self, button):
-        self.set_active_page(button.get_label())
-        self.stack.set_visible_child_name(button.get_label().lower())
-
-    def set_active_page(self, active_page):
-        for page, button in self.page_buttons.items():
-            if page == active_page:
-                button.get_style_context().add_class('active')
-            else:
-                button.get_style_context().remove_class('active')
-
-    def on_browse_clicked(self, button):
-        dialog = Gtk.FileChooserDialog(
-            title="Select DWM Directory",
-            parent=self,
-            action=Gtk.FileChooserAction.SELECT_FOLDER,
-        )
-        dialog.add_buttons(
-            Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-            Gtk.STOCK_OPEN, Gtk.ResponseType.OK
-        )
-        
-        response = dialog.run()
-        if response == Gtk.ResponseType.OK:
-            path = dialog.get_filename()
-            # Update DWM path and reload configuration
-            pass
-        
-        dialog.destroy()
-
-class PasswordDialog(Gtk.Dialog):
-    def __init__(self, parent):
-        super().__init__(
-            title="Enter Password",
-            transient_for=parent,
-            flags=0
-        )
-        
-        self.add_buttons(
-            Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-            Gtk.STOCK_OK, Gtk.ResponseType.OK
-        )
-        
-        self.set_default_size(300, 100)
-        
-        box = self.get_content_area()
-        box.set_spacing(6)
-        box.set_margin_start(12)
-        box.set_margin_end(12)
-        box.set_margin_top(12)
-        box.set_margin_bottom(12)
-        
-        label = Gtk.Label(label="Enter sudo password:")
-        box.add(label)
-        
-        self.entry = Gtk.Entry()
-        self.entry.set_visibility(False)
-        self.entry.set_invisible_char("●")
-        box.add(self.entry)
-        
-        self.show_all()
-
-    def get_password(self):
-        return self.entry.get_text()
 
 def main():
     config = DWMConfig()
     win = ModernConfigurator(config)
-    win.connect("destroy", Gtk.main_quit)
     win.show_all()
     Gtk.main()
 

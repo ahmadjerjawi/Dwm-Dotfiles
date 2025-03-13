@@ -1,68 +1,219 @@
 #!/bin/bash
+# Bluetooth Status Script for dwmblocks
+# Shows Bluetooth connection status with detailed device information and battery level
 
-# Define your emojis here
-BLUETOOTH_CONNECTED_EMOJI="󰂱"
-BLUETOOTH_ON_EMOJI="󰂯"
+# --- Icons (using Nerd Font icons) ---
+BLUETOOTH_CONNECTED_ICON="󰂱"
+BLUETOOTH_ON_ICON="󰂯"
+BLUETOOTH_OFF_ICON="󰂲"
 
-get_bluetooth() {
+# Battery level icons
+BATTERY_FULL_ICON="󰁹"
+BATTERY_HIGH_ICON="󰂂"
+BATTERY_MEDIUM_ICON="󰁾"
+BATTERY_LOW_ICON="󰁻"
+BATTERY_CRITICAL_ICON="󰂃"
+BATTERY_UNKNOWN_ICON="󰂑"
+
+# Colors for dwmblocks (using the ^c format) 
+COLOR_CONNECTED="^c#00ff00^"      # Green
+COLOR_ON="^c#00aaff^"             # Blue
+COLOR_OFF="^c#888888^"            # Gray
+COLOR_BATTERY_FULL="^c#00ff00^"   # Green
+COLOR_BATTERY_HIGH="^c#88ff00^"   # Light Green
+COLOR_BATTERY_MEDIUM="^c#ffff00^" # Yellow
+COLOR_BATTERY_LOW="^c#ff8800^"    # Orange
+COLOR_BATTERY_CRITICAL="^c#ff0000^" # Red
+COLOR_RESET="^d^"                 # Reset to default color
+
+# --- Get Bluetooth status ---
+get_bluetooth_status() {
     # Get the power status of Bluetooth
+    if ! command -v bluetoothctl >/dev/null 2>&1; then
+        # Don't show anything if bluetoothctl isn't available
+        echo ""
+        return
+    fi
+
     BLUETOOTH_STATUS=$(bluetoothctl show | grep "Powered: " | awk '{print $2}')
-
+    
     if [ "$BLUETOOTH_STATUS" = "yes" ]; then
-        # Bluetooth is ON. Now check if any device is connected.
-        BLUETOOTH_CONNECTED=$(bluetoothctl info | grep "Connected: " | awk '{print $2}')
-        if [ "$BLUETOOTH_CONNECTED" = "yes" ]; then
-            MAC_ADDRESS=$(bluetoothctl info | grep "Device" | grep -o -E '([[:xdigit:]]{1,2}:){5}[[:xdigit:]]{1,2}')
-            DEVICE_NAME=$(bluetoothctl info $MAC_ADDRESS | grep "Name: " | cut -d ' ' -f 2-)
-            BATTERY_LEVEL=$(get_battery_level $MAC_ADDRESS)
-
-            if [ -n "$BATTERY_LEVEL" ]; then
-                echo "$BLUETOOTH_CONNECTED_EMOJI"
-            else
-                echo "$BLUETOOTH_CONNECTED_EMOJI $DEVICE_NAME (Battery info not available)"
-            fi
+        # Check if any device is connected
+        CONNECTED_DEVICES=$(bluetoothctl devices Connected | wc -l)
+        
+        if [ "$CONNECTED_DEVICES" -gt 0 ]; then
+            # Get information about the connected device(s)
+            DEVICE_INFO=""
+            MAIN_DEVICE_DISPLAY=""
+            
+            while read -r line; do
+                if [ -n "$line" ]; then
+                    MAC_ADDRESS=$(echo "$line" | grep -o -E '([[:xdigit:]]{1,2}:){5}[[:xdigit:]]{1,2}')
+                    DEVICE_NAME=$(echo "$line" | cut -d ' ' -f 3-)
+                    
+                    # Get device details
+                    DEVICE_TYPE=$(bluetoothctl info "$MAC_ADDRESS" | grep "Icon: " | cut -d ' ' -f 2-)
+                    
+                    # Get battery level
+                    BATTERY_LEVEL=$(get_battery_level "$MAC_ADDRESS")
+                    BATTERY_ICON="${BATTERY_UNKNOWN_ICON}"
+                    BATTERY_COLOR="${COLOR_OFF}"
+                    
+                    # Format battery icon based on level
+                    if [ -n "$BATTERY_LEVEL" ] && [ "$BATTERY_LEVEL" != "Battery information not available" ]; then
+                        # Remove % from battery level for comparison
+                        BATTERY_NUM=${BATTERY_LEVEL//%/}
+                        
+                        # Set battery icon and color based on level
+                        if [ "$BATTERY_NUM" -ge 90 ]; then
+                            BATTERY_ICON="${BATTERY_FULL_ICON}"
+                            BATTERY_COLOR="${COLOR_BATTERY_FULL}"
+                        elif [ "$BATTERY_NUM" -ge 70 ]; then
+                            BATTERY_ICON="${BATTERY_HIGH_ICON}"
+                            BATTERY_COLOR="${COLOR_BATTERY_HIGH}"
+                        elif [ "$BATTERY_NUM" -ge 40 ]; then
+                            BATTERY_ICON="${BATTERY_MEDIUM_ICON}"
+                            BATTERY_COLOR="${COLOR_BATTERY_MEDIUM}"
+                        elif [ "$BATTERY_NUM" -ge 20 ]; then
+                            BATTERY_ICON="${BATTERY_LOW_ICON}"
+                            BATTERY_COLOR="${COLOR_BATTERY_LOW}"
+                        else
+                            BATTERY_ICON="${BATTERY_CRITICAL_ICON}"
+                            BATTERY_COLOR="${COLOR_BATTERY_CRITICAL}"
+                        fi
+                        
+                        # Format with battery level
+                        DEVICE_INFO="${DEVICE_INFO}${DEVICE_NAME} (${DEVICE_TYPE}): ${BATTERY_LEVEL}\n"
+                        
+                        # Use the first device for the status bar display
+                        if [ -z "$MAIN_DEVICE_DISPLAY" ]; then
+                            MAIN_DEVICE_DISPLAY="${COLOR_CONNECTED}${BLUETOOTH_CONNECTED_ICON}${COLOR_RESET} ${BATTERY_COLOR}${BATTERY_ICON}${COLOR_RESET}"
+                        fi
+                    else
+                        # No battery info
+                        DEVICE_INFO="${DEVICE_INFO}${DEVICE_NAME} (${DEVICE_TYPE}): No battery info\n"
+                        
+                        # Use the first device for the status bar display
+                        if [ -z "$MAIN_DEVICE_DISPLAY" ]; then
+                            MAIN_DEVICE_DISPLAY="${COLOR_CONNECTED}${BLUETOOTH_CONNECTED_ICON}${COLOR_RESET}"
+                        fi
+                    fi
+                fi
+            done < <(bluetoothctl devices Connected)
+            
+            # Store details for notification
+            echo -e "Connected Bluetooth Devices:\n${DEVICE_INFO}" > /tmp/bluetooth_details
+            
+            # Display status with battery icon
+            echo "$MAIN_DEVICE_DISPLAY"
         else
-            # No device is connected. Print the Bluetooth ON emoji.
-            echo $BLUETOOTH_ON_EMOJI
+            # No devices connected, Bluetooth is just on, show only grey icon
+            echo "${COLOR_OFF}${BLUETOOTH_ON_ICON}${COLOR_RESET}"
+            echo "Bluetooth: On (No devices connected)" > /tmp/bluetooth_details
         fi
+    else
+        # Bluetooth is off, don't show anything
+        echo ""
+        echo "Bluetooth: Off" > /tmp/bluetooth_details
     fi
 }
 
-# Function to get battery level using upower
+# --- Get battery level from connected device ---
 get_battery_level() {
     local mac_address=$1
-    local battery_info=$(upower -i /org/freedesktop/UPower/devices/headset_dev_${mac_address//:/_})
+    
+    # Try with upower first (works with many headsets and peripherals)
+    if command -v upower >/dev/null 2>&1; then
+        # Convert MAC address to upower format
+        local upower_path="/org/freedesktop/UPower/devices/headset_dev_${mac_address//:/_}"
+        
+        # Check if the device exists in upower
+        if upower -i "$upower_path" >/dev/null 2>&1; then
+            local battery_info=$(upower -i "$upower_path" | grep -E "percentage" | awk '{print $2}')
+            if [ -n "$battery_info" ]; then
+                echo "$battery_info"
+                return
+            fi
+        fi
+    fi
+    
+    # Try with bluetoothctl (some devices report battery through BT properties)
+    local battery_info=$(bluetoothctl info "$mac_address" | grep -i "battery" | head -n1)
+    if [ -n "$battery_info" ]; then
+        # Extract percentage - different devices report in different formats
+        local percentage=$(echo "$battery_info" | grep -o -E '[0-9]+%' | head -n1)
+        if [ -n "$percentage" ]; then
+            echo "$percentage"
+            return
+        fi
+        
+        # Some devices report level (0-9) instead of percentage
+        local level=$(echo "$battery_info" | grep -o -E 'Level: [0-9]+' | grep -o -E '[0-9]+')
+        if [ -n "$level" ]; then
+            # Convert level to approximate percentage
+            echo "$((level * 100 / 9))%"
+            return
+        fi
+    fi
+    
+    echo "Battery information not available"
+}
 
-    if [[ $? -eq 0 ]]; then
-        echo "$battery_info" | grep -E "percentage" | awk '{print $2}'
+# --- Show detailed Bluetooth status ---
+show_details() {
+    if [ -f /tmp/bluetooth_details ]; then
+        notify-send "Bluetooth Status" "$(cat /tmp/bluetooth_details)"
     else
-        echo "Battery information not available"
+        notify-send "Bluetooth Status" "Information unavailable"
     fi
 }
 
-# Handle click events
-case $BLOCK_BUTTON in
-  1) # Left click
-    # Get the name and battery level of the connected device
-    MAC_ADDRESS=$(bluetoothctl info | grep "Device" | grep -o -E '([[:xdigit:]]{1,2}:){5}[[:xdigit:]]{1,2}')
-    DEVICE_NAME=$(bluetoothctl info $MAC_ADDRESS | grep "Name: " | cut -d ' ' -f 2-)
-    BATTERY_LEVEL=$(get_battery_level $MAC_ADDRESS)
-
-    if [ -n "$DEVICE_NAME" ]; then
-        notify-send "Device Name: $DEVICE_NAME" "Battery Level: $BATTERY_LEVEL"
+# --- Toggle Bluetooth power ---
+toggle_bluetooth() {
+    BLUETOOTH_STATUS=$(bluetoothctl show | grep "Powered: " | awk '{print $2}')
+    
+    if [ "$BLUETOOTH_STATUS" = "yes" ]; then
+        bluetoothctl power off
+        notify-send "Bluetooth" "Turning OFF"
     else
-        notify-send "No device connected"
+        bluetoothctl power on
+        notify-send "Bluetooth" "Turning ON"
     fi
-    ;;
-  3) # Right click
-    notify-send "The Bluetooth module. When left clicked, it shows the device name and battery level. If not connected, it shows the Bluetooth status."
-    ;;
-  6) setsid -f "$TERMINAL" -e "$EDITOR" "$0" ;;
-  7) # Signal 7 received (e.g., scroll lock pressed)
-    # Turn off Bluetooth
+    
+    # Refresh the block
+    pkill -RTMIN+5 dwmblocks  # Assuming signal 5 for Bluetooth
+}
+
+# --- Kill Bluetooth connection ---
+kill_bluetooth() {
     bluetoothctl power off
-    ;;
-  *)
-    get_bluetooth
-    ;;
+    notify-send "Bluetooth" "Turned OFF"
+    pkill -RTMIN+5 dwmblocks  # Refresh the block
+}
+
+# --- Handle click events ---
+case $BLOCK_BUTTON in
+    1) # Left click: Show device info
+        # Get the name and battery level of the connected device
+        MAC_ADDRESS=$(bluetoothctl info | grep "Device" | grep -o -E '([[:xdigit:]]{1,2}:){5}[[:xdigit:]]{1,2}')
+        if [ -n "$MAC_ADDRESS" ]; then
+            DEVICE_NAME=$(bluetoothctl info $MAC_ADDRESS | grep "Name: " | cut -d ' ' -f 2-)
+            BATTERY_LEVEL=$(get_battery_level $MAC_ADDRESS)
+            if [ -n "$DEVICE_NAME" ]; then
+                notify-send "Device Name: $DEVICE_NAME" "Battery Level: $BATTERY_LEVEL"
+            else
+                notify-send "No device connected"
+            fi
+        else
+            notify-send "No device connected"
+        fi
+        ;;
+    2) pkill -RTMIN+5 dwmblocks ;;  # Middle click: Refresh
+    3) show_details ;;  # Right click: Show connection details
+    6) "$TERMINAL" -e "$EDITOR" "$0" ;;  # Edit this script
+    7) kill_bluetooth ;;  # Signal 7 (Super+click): Kill Bluetooth
+    *)
+        # Just display status
+        get_bluetooth_status
+        ;;
 esac

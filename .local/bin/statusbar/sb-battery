@@ -1,48 +1,72 @@
 #!/bin/sh
+# Battery Status Script for dwmblocks
+# Shows battery status with color-coded icons based on battery level and status
+# --- Colors for dwmblocks (using the ^c format) ---
+COLOR_FULL="^c#00ff00^"       # Green
+COLOR_HIGH="^c#88ff00^"       # Light Green
+COLOR_MEDIUM="^c#ffff00^"     # Yellow
+COLOR_LOW="^c#ff8800^"        # Orange
+COLOR_CRITICAL="^c#ff0000^"   # Red
+COLOR_CHARGING="^c#00aaff^"   # Blue
+COLOR_RESET="^d^"             # Reset to default color
 
+# Handle click events
 case $BLOCK_BUTTON in
-    1) # Left-click: Show detailed battery info from upower
+    1) # Left-click: Show detailed battery info
         battery_info=""
         for battery in /sys/class/power_supply/BAT?*; do
             battery_name=$(basename "$battery")
-            battery_info+="\n$(upower -i /org/freedesktop/UPower/devices/battery_$battery_name | grep -E 'state|percentage|time to empty|energy|capacity')\n"
+            battery_info="${battery_info}\n$(upower -i /org/freedesktop/UPower/devices/battery_${battery_name} | grep -E 'state|percentage|time to empty|energy|capacity')\n"
         done
         notify-send "Battery Info" "$battery_info" ;;
-    3) # Right-click: Explain what the module does
-        notify-send " Battery Module" "Shows battery status. Left-click: details. Right-click: explanation. Shift+Left: script. Shift+Right: dwmblocks config." ;;
+    3) # Right-click: Show explanation
+        notify-send " Battery Module" "Shows battery status. Left-click: details. Right-click: explanation. Shift+Left: script. Shift+Right: dwmblocks config." ;;
     6) # Middle-click: Open script in editor
         "$TERMINAL" -e "$EDITOR" "$0" ;;
 esac
 
-# Loop through all attached batteries and format the info
+# Main battery status loop
 for battery in /sys/class/power_supply/BAT?*; do
-    # If non-first battery, print a space separator.
+    # Space separator between multiple batteries
     [ -n "${capacity+x}" ] && printf " "
-    # Sets up the status and capacity
-    case "$(cat "$battery/status")" in
-        "Full") status=" " ;;
-        "Discharging") status="" ;;
-        "Charging") status=" " ;;
-        "Not charging") status="" ;;
-        "Unknown") status="" ;;
+
+    # Get capacity and status
+    capacity=$(cat "$battery/capacity" 2>/dev/null || echo "0")
+    original_status=$(cat "$battery/status" 2>/dev/null)
+
+    # Round 99% to 100%
+    [ "$capacity" = "99" ] && capacity=100
+
+    # Set status icon
+    case "$original_status" in
+        "Full") icon="" ;;
+        "Discharging")
+            # Capacity-based icons for discharging
+            if [ "$capacity" -gt 90 ]; then icon=""
+            elif [ "$capacity" -gt 60 ]; then icon=""
+            elif [ "$capacity" -gt 30 ]; then icon=""
+            else icon=""
+            fi ;;
+        "Charging") icon="" ;;
+        "Not charging") icon="󰂃" ;;
+        "Unknown") icon="󰂑" ;;
+        *) icon="" ;;
     esac
-    capacity=$(cat "$battery/capacity")
 
-    if [ $capacity = "99" ]; then
-        capacity=100;
-    fi
-    if [[ $capacity > 99 ]]; then
-        printf " %s%s%d%%" "$warn" "$status" "$capacity"; unset warn
-    elif [[ $status = " " ]]; then
-        printf "%s%s%d%%" "$status" "$warn" "$capacity"; unset warn
-    elif (( $capacity > 85)); then
-        printf " %s%s%d%%" "$status" "$warn" "$capacity"; unset warn
-    elif (( $capacity > 60)); then
-        printf " %s%s%d%%" "$status" "$warn" "$capacity"; unset warn
-    elif (( $capacity > 30 )); then
-        printf " %s%s%d%%" "$status" "$warn" "$capacity"; unset warn
+    # Determine color
+    if [ "$original_status" = "Charging" ]; then
+        color="$COLOR_CHARGING"
     else
-        printf " %s%s%d%%" "$status" "$warn" "$capacity"; unset warn
+        if [ "$capacity" -gt 90 ]; then color="$COLOR_FULL"
+        elif [ "$capacity" -gt 70 ]; then color="$COLOR_HIGH"
+        elif [ "$capacity" -gt 40 ]; then color="$COLOR_MEDIUM"
+        elif [ "$capacity" -gt 20 ]; then color="$COLOR_LOW"
+        else color="$COLOR_CRITICAL"
+        fi
     fi
 
-done && exit 0
+    # Format output
+    printf "%s%s %d%%%s" "$color" "$icon" "$capacity" "$COLOR_RESET"
+done
+
+exit 0

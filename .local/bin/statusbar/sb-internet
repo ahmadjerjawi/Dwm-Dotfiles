@@ -1,32 +1,184 @@
 #!/bin/bash
+# Network Status Script for dwmblocks
+# Shows both Ethernet and WiFi connection status with detailed information
 
-# Gets the wifi status
+# --- Icons (using Nerd Font icons) ---
+# Ethernet icons
+ETHERNET_CONNECTED_ICON='󰈀'
+ETHERNET_DISCONNECTED_ICON='󰈂'
 
+# WiFi icons
 WIFI_FULL_ICON='󰤨'
 WIFI_MID_ICON='󰤥'
 WIFI_LOW_ICON='󰤟'
-NO_WIFI_ICON=''
+NO_WIFI_ICON='󰖪'
 
-get_wifi()
-{
-        if grep -q wl* "/proc/net/wireless"; then
-                # Wifi quality percentage
-                percentage=$(grep "^\s*w" /proc/net/wireless | awk '{ print "", int($3 * 100 / 70)}'| xargs)
-                case $percentage in
-                        0)                              echo $NO_WIFI_ICON;;
-                        100|9[0-9]|8[0-9]|7[0-9])       echo "$WIFI_FULL_ICON" ;;
-                        6[0-9]|5[0-9]|4[0-9]|3[0-9])    echo "$WIFI_MID_ICON" ;;
-                        2[0-9]|1[0-9]|[0-9])            echo "$WIFI_LOW_ICON" ;;
-                esac
+# Colors for dwmblocks (using the ^c format) Ansi 
+COLOR_CONNECTED="^c#00ff00^"      # Green
+COLOR_MEDIUM="^c#ffff00^"         # Yellow
+COLOR_LOW="^c#ff0000^"            # Red
+COLOR_DISCONNECTED="^c#888888^"   # Gray
+COLOR_RESET="^d^"                 # Reset to default color
+
+# --- Get Ethernet status ---
+get_ethernet_status() {
+    local eth_status=""
+    local eth_details=""
+    local connected=false
+    
+    # Check all network interfaces for Ethernet connections
+    for interface in /sys/class/net/*; do
+        # Skip loopback, wireless, and virtual interfaces
+        interface_name=$(basename "$interface")
+        if [[ "$interface_name" == "lo" || "$interface_name" == wlan* || "$interface_name" == veth* || "$interface_name" == docker* || "$interface_name" == br* || "$interface_name" == tun* ]]; then
+            continue
         fi
+        
+        # Check if it's an Ethernet interface (type 1 = ARPHRD_ETHER)
+        if [ -f "$interface/type" ] && [ "$(cat "$interface/type" 2>/dev/null)" -eq 1 ]; then
+            # Check if carrier is up (cable connected)
+            if [ -f "$interface/carrier" ] && [ "$(cat "$interface/carrier" 2>/dev/null)" -eq 1 ]; then
+                connected=true
+                
+                # Get IP address
+                ip_address=$(ip -4 addr show "$interface_name" | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -n 1)
+                
+                if [ -n "$ip_address" ]; then
+                    # Get connection speed
+                    if [ -f "$interface/speed" ]; then
+                        speed=$(cat "$interface/speed" 2>/dev/null)
+                        if [ "$speed" != "-1" ] && [ -n "$speed" ]; then
+                            eth_details="${interface_name}: ${ip_address} (${speed}Mbps)"
+                        else
+                            eth_details="${interface_name}: ${ip_address}"
+                        fi
+                    else
+                        eth_details="${interface_name}: ${ip_address}"
+                    fi
+                    
+                    # Format for status bar
+                    eth_status="${COLOR_CONNECTED}${ETHERNET_CONNECTED_ICON}${COLOR_RESET}"
+                    
+                    # We found a connected interface, no need to check others
+                    break
+                fi
+            fi
+        fi
+    done
+    
+    # Store details for notification
+    if [ "$connected" = true ]; then
+        echo "Ethernet: $eth_details" > /tmp/network_eth_details
+        echo "$eth_status"
+    else
+        echo "Ethernet: No connection" > /tmp/network_eth_details
+        echo "${COLOR_DISCONNECTED}${ETHERNET_DISCONNECTED_ICON}${COLOR_RESET}"
+    fi
 }
 
-# Handle click events
+# --- Get WiFi status ---
+get_wifi_status() {
+    local wifi_status=""
+    local wifi_details=""
+    
+    if grep -q wl* "/proc/net/wireless" 2>/dev/null; then
+        # Wifi quality percentage
+        percentage=$(grep "^\s*w" /proc/net/wireless 2>/dev/null | awk '{ print "", int($3 * 100 / 70)}' | xargs)
+        
+        # Get interface name and SSID
+        interface=$(grep "^\s*w" /proc/net/wireless | awk '{print $1}' | sed 's/://g')
+        ssid=$(iwgetid -r 2>/dev/null)
+        
+        # Get IP address
+        ip_address=$(ip -4 addr show "${interface}" 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -n 1)
+        
+        # Format details for notification
+        if [ -n "$ssid" ] && [ -n "$ip_address" ]; then
+            wifi_details="${interface}: ${ssid} (${percentage}%) - ${ip_address}"
+        elif [ -n "$ssid" ]; then
+            wifi_details="${interface}: ${ssid} (${percentage}%)"
+        else
+            wifi_details="${interface}: Not connected"
+        fi
+        
+        # Format icon for status bar based on signal strength
+        case $percentage in
+            100|9[0-9]|8[0-9]|7[0-9])  
+                wifi_status="${COLOR_CONNECTED}${WIFI_FULL_ICON}${COLOR_RESET}" ;;
+            6[0-9]|5[0-9]|4[0-9])      
+                wifi_status="${COLOR_MEDIUM}${WIFI_MID_ICON}${COLOR_RESET}" ;;
+            3[0-9]|2[0-9]|1[0-9]|[0-9]) 
+                wifi_status="${COLOR_LOW}${WIFI_LOW_ICON}${COLOR_RESET}" ;;
+            *)                          
+                wifi_status="${COLOR_DISCONNECTED}${NO_WIFI_ICON}${COLOR_RESET}" 
+                wifi_details="WiFi: Not connected" ;;
+        esac
+        
+        # Store details for notification
+        echo "WiFi: $wifi_details" > /tmp/network_wifi_details
+        echo "$wifi_status"
+    else
+        echo "WiFi: No wireless interfaces found" > /tmp/network_wifi_details
+        echo ""  # No output if no WiFi interface
+    fi
+}
+
+# --- Get Network Status (both Ethernet and WiFi) ---
+get_network_status() {
+    local eth_output=$(get_ethernet_status)
+    local wifi_output=$(get_wifi_status)
+    
+    # Combine outputs, showing both if available
+    if [ -n "$eth_output" ] && [ -n "$wifi_output" ]; then
+        echo "${eth_output} ${wifi_output}"
+    elif [ -n "$eth_output" ]; then
+        echo "$eth_output"
+    elif [ -n "$wifi_output" ]; then
+        echo "$wifi_output"
+    else
+        echo "${COLOR_DISCONNECTED}No network${COLOR_RESET}"
+    fi
+}
+
+# --- Show detailed network status ---
+show_details() {
+    local details=""
+    
+    if [ -f /tmp/network_eth_details ]; then
+        details="${details}$(cat /tmp/network_eth_details)\n"
+    fi
+    
+    if [ -f /tmp/network_wifi_details ]; then
+        details="${details}$(cat /tmp/network_wifi_details)"
+    fi
+    
+    if [ -z "$details" ]; then
+        details="Network status information unavailable"
+    fi
+    
+    notify-send "Network Status" "$(echo -e "$details")"
+}
+
+# --- Open network configuration ---
+open_network_config() {
+    if command -v nm-connection-editor >/dev/null 2>&1; then
+        nm-connection-editor &
+    elif command -v nmtui >/dev/null 2>&1; then
+        terminal=$(which x-terminal-emulator || which gnome-terminal || which konsole || which xterm)
+        $terminal -e nmtui &
+    else
+        notify-send "Network Configuration" "No network manager found"
+    fi
+}
+
+# --- Handle click events ---
 case $BLOCK_BUTTON in
-  1) xdotool key super+shift+w ;;  # Left click
-  3) notify-send "󰤨 This is the wifi module when
-left clicked you get nmtui and right click this" ;;
-   6) "$TERMINAL" -e "$EDITOR" "$0" ;;
-   *)get_wifi
-    ;;
+    1) open_network_config ;;  # Left click: Open network manager
+    2) pkill -RTMIN+4 dwmblocks ;;  # Middle click: Refresh
+    3) show_details ;;  # Right click: Show connection details
+    6) "$TERMINAL" -e "$EDITOR" "$0" ;;  # Edit this script
+    *)
+        # Just display status
+        get_network_status
+        ;;
 esac

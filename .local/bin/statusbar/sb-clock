@@ -1,28 +1,193 @@
-#!/bin/sh
+#!/bin/bash
+# Enhanced Clock Script for dwmblocks
+# Shows time with dynamic icons, colors based on time of day, and detailed calendar info
 
-clock=$(date '+%I')
+# --- Icons (Nerd Font recommended, but keeping emoji fallbacks) ---
+# Hour icons - using original emoji clock faces
+CLOCK_ICONS=(
+    "🕛" "🕐" "🕑" "🕒" "🕓" "🕔" 
+    "🕕" "🕖" "🕗" "🕘" "🕙" "🕚"
+)
 
-case "$clock" in
-	"00") icon="🕛" ;;
-	"01") icon="🕐" ;;
-	"02") icon="🕑" ;;
-	"03") icon="🕒" ;;
-	"04") icon="🕓" ;;
-	"05") icon="🕔" ;;
-	"06") icon="🕕" ;;
-	"07") icon="🕖" ;;
-	"08") icon="🕗" ;;
-	"09") icon="🕘" ;;
-	"10") icon="🕙" ;;
-	"11") icon="🕚" ;;
-	"12") icon="🕛" ;;
-esac
+# Alternate icon set using Nerd Font icons (uncomment to use)
+# CLOCK_ICONS=(
+#     "󱑊" "󱑋" "󱑌" "󱑍" "󱑎" "󱑏"
+#     "󱑐" "󱑑" "󱑒" "󱑓" "󱑔" "󱑕"
+# )
 
+# Day/Night indicators
+MORNING_ICON="🌅"    # or "󰖨" for Nerd Font
+AFTERNOON_ICON="☀️"  # or "󰖙" for Nerd Font
+EVENING_ICON="🌇"    # or "󰖛" for Nerd Font
+NIGHT_ICON="🌙"      # or "󰖔" for Nerd Font
+
+# Calendar/Date indicators
+CALENDAR_ICON="📅"   # or "󰸗" for Nerd Font
+WEEK_ICON="📆"       # or "󰸘" for Nerd Font
+
+# Colors for dwmblocks (using the ^c format like in the Bluetooth script)
+COLOR_MORNING="^c#ffcc00^"      # Yellow/orange for morning (5-11)
+COLOR_AFTERNOON="^c#ffaa00^"    # Orange/gold for afternoon (12-16)
+COLOR_EVENING="^c#ff5500^"      # Orange/red for evening (17-20)
+COLOR_NIGHT="^c#0088ff^"        # Blue for night (21-4)
+COLOR_DATE="^c#aaaaaa^"         # Light grey for date
+COLOR_WEEKEND="^c#ff8877^"      # Light red for weekend
+COLOR_TODAY="^c#00ff88^"        # Green for today's date
+COLOR_RESET="^d^"               # Reset to default color
+
+# --- Get time and date with appropriate formatting ---
+get_clock_display() {
+    # Get current time components
+    HOUR=$(date '+%I')
+    HOUR_24=$(date '+%H')
+    HOUR_NUM=$((10#$HOUR_24))
+    MINUTE=$(date '+%M')
+    AMPM=$(date '+%p')
+    SECOND=$(date '+%S')
+    DAY=$(date '+%d')
+    MONTH=$(date '+%m')
+    YEAR=$(date '+%Y')
+    WEEKDAY=$(date '+%A')
+    WEEKDAY_SHORT=$(date '+%a')
+    WEEK_NUM=$(date '+%V')
+    
+    # Remove leading zero from hour for array indexing
+    HOUR_INDEX=$((10#$HOUR % 12))
+    
+    # Get the clock face icon
+    CLOCK_ICON="${CLOCK_ICONS[$HOUR_INDEX]}"
+    
+    # Select day/night icon and color based on hour
+    if [ "$HOUR_NUM" -ge 5 ] && [ "$HOUR_NUM" -lt 12 ]; then
+        TIME_ICON="$MORNING_ICON"
+        TIME_COLOR="$COLOR_MORNING"
+    elif [ "$HOUR_NUM" -ge 12 ] && [ "$HOUR_NUM" -lt 17 ]; then
+        TIME_ICON="$AFTERNOON_ICON"
+        TIME_COLOR="$COLOR_AFTERNOON"
+    elif [ "$HOUR_NUM" -ge 17 ] && [ "$HOUR_NUM" -lt 21 ]; then
+        TIME_ICON="$EVENING_ICON"
+        TIME_COLOR="$COLOR_EVENING"
+    else
+        TIME_ICON="$NIGHT_ICON"
+        TIME_COLOR="$COLOR_NIGHT"
+    fi
+    
+    # Check if it's a weekend
+    if [ "$WEEKDAY" = "Saturday" ] || [ "$WEEKDAY" = "Sunday" ]; then
+        WEEKDAY_COLOR="$COLOR_WEEKEND"
+    else
+        WEEKDAY_COLOR="$COLOR_DATE"
+    fi
+    
+    # Format the time display with colors
+    TIME_DISPLAY="${TIME_COLOR}${CLOCK_ICON}${COLOR_RESET} ${TIME_COLOR}${HOUR}:${MINUTE}${COLOR_RESET} ${AMPM}"
+    
+    # Format the date display with colors
+    DATE_DISPLAY="${WEEKDAY_COLOR}${WEEKDAY_SHORT}${COLOR_RESET} ${COLOR_DATE}${YEAR}-${MONTH}-${DAY}${COLOR_RESET}"
+    
+    # Combine for the final display
+    echo "${TIME_DISPLAY} ${DATE_DISPLAY}"
+    
+    # Store detailed time info for notifications
+    echo -e "Date: ${WEEKDAY}, ${YEAR}-${MONTH}-${DAY}\nTime: ${HOUR}:${MINUTE}:${SECOND} ${AMPM}\nWeek: ${WEEK_NUM} of 52" > /tmp/clock_details
+    
+    # Store current month calendar with today highlighted
+    cal | sed "s/\<$(date +'%e')\>/${COLOR_TODAY}&${COLOR_RESET}/" > /tmp/calendar_month
+}
+
+# --- Get upcoming appointments ---
+get_appointments() {
+    if command -v calcurse >/dev/null 2>&1; then
+        NEXT_DAYS=3
+        APPOINTMENTS=$(calcurse -d$NEXT_DAYS)
+        
+        if [ -n "$APPOINTMENTS" ]; then
+            echo -e "Upcoming Appointments (Next ${NEXT_DAYS} days):\n${APPOINTMENTS}" > /tmp/appointments
+        else
+            echo "No appointments in the next ${NEXT_DAYS} days." > /tmp/appointments
+        fi
+    else
+        echo "Calcurse not installed. Install it to manage appointments." > /tmp/appointments
+    fi
+}
+
+# --- Show calendar with color-coded current date ---
+show_calendar() {
+    if [ -f /tmp/calendar_month ]; then
+        CALENDAR=$(cat /tmp/calendar_month)
+        notify-send "Calendar" "$CALENDAR"
+    else
+        CALENDAR=$(cal | sed "s/\<$(date +'%e')\>/<b><span color='red'>&<\/span><\/b>/")
+        notify-send "Calendar" "$CALENDAR"
+    fi
+}
+
+# --- Show detailed time information ---
+show_time_details() {
+    if [ -f /tmp/clock_details ]; then
+        notify-send "Time Information" "$(cat /tmp/clock_details)"
+    else
+        notify-send "Time Information" "Information unavailable"
+    fi
+}
+
+# --- Show appointments ---
+show_appointments() {
+    # First update the appointments
+    get_appointments
+    
+    if [ -f /tmp/appointments ]; then
+        notify-send "Appointments" "$(cat /tmp/appointments)"
+    else
+        notify-send "Appointments" "Information unavailable"
+    fi
+}
+
+# --- Open calendar application ---
+open_calendar() {
+    if command -v calcurse >/dev/null 2>&1; then
+        setsid -f "$TERMINAL" -e calcurse
+    else
+        notify-send "Calendar" "Calcurse not installed.\nInstall it with your package manager."
+    fi
+}
+
+# --- Show help information ---
+show_help() {
+    notify-send "📅 Time/date module" "\
+- Left click: Show calendar and appointments
+- Middle click: Open calcurse calendar app
+- Right click: Show detailed time information
+- Scroll up: Show only appointments 
+- Scroll down: Show help"
+}
+
+# --- Handle click events ---
 case $BLOCK_BUTTON in
-	1) notify-send "This Month" "$(cal | sed "s/\<$(date +'%e')\>/<b><span color='red'>&<\/span><\/b>/")" && notify-send "Appointments" "$(calcurse -d3)" ;;
-	2) setsid -f "$TERMINAL" -e calcurse ;;
-	3) notify-send "📅 Time/date module" "\- Left click to show upcoming appointments for the next three days via \`calcurse -d3\` and show the month via \`cal\`
-- Middle click opens calcurse if installed" ;;
-	6) setsid -f "$TERMINAL" -e "$EDITOR" "$0" ;;
+    1) # Left click: Show calendar and appointments
+        show_calendar
+        show_appointments
+        ;;
+    2) # Middle click: Open calendar app
+        open_calendar
+        ;;
+    3) # Right click: Show detailed time information 
+        show_time_details
+        ;;
+    4) # Scroll up: Show only appointments
+        show_appointments
+        ;;
+    5) # Scroll down: Show help
+        show_help
+        ;;
+    6) # Edit this script
+        setsid -f "$TERMINAL" -e "$EDITOR" "$0"
+        ;;
+    *)
+        # Update appointment data in the background
+        get_appointments &
+        
+        # Just display time
+        get_clock_display
+        ;;
 esac
-date "+%Y\%m\%d (%A) %I:%M%p"

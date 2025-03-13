@@ -1,47 +1,223 @@
 #!/bin/bash
+# Enhanced Camera Monitor Script for dwmblocks
+# Detects camera usage and offers options to black out camera or kill processes
 
-# List of applications to exclude
-exclude_apps=("pipewire" "wireplumb")
+# --- Configuration ---
+# List of applications to always exclude from detection/actions
+EXCLUDE_APPS=("pipewire" "wireplumber" "v4l2loopback")
 
-# Function to kill processes using the camera
+# --- Icons (using Nerd Font icons) ---
+CAMERA_ON_ICON="󰄀"            # Camera in use
+CAMERA_ON_ALT_ICON="󰄄"        # Alternative icon
+CAMERA_BLACKED_ICON="󰿪"       # Camera blacked out
+CAMERA_OFF_ICON=""            # No icon when camera is off/unused
+
+# --- Colors for dwmblocks ---
+COLOR_ON="^c#ff0000^"          # Red for active camera
+COLOR_BLACKED="^c#888888^"     # Gray for blacked camera
+COLOR_NORMAL="^d^"             # Reset to default color
+
+# --- Paths ---
+V4L2LOOPBACK_MODULE="v4l2loopback"
+BLACK_FRAME_DEVICE="/dev/video8"  # This will be our fake camera device
+BLACK_FEED_PID_FILE="/tmp/camera_black_feed.pid"
+CAMERA_STATE_FILE="/tmp/camera_state"
+CAMERA_USERS_FILE="/tmp/camera_users"
+
+# --- Camera state tracking ---
+# 0 = normal, 1 = blacked out
+get_camera_state() {
+    if [ -f "$CAMERA_STATE_FILE" ]; then
+        cat "$CAMERA_STATE_FILE"
+    else
+        echo "0"
+    fi
+}
+
+set_camera_state() {
+    echo "$1" > "$CAMERA_STATE_FILE"
+}
+
+# --- Check for v4l2loopback module ---
+ensure_v4l2loopback() {
+    # Check if module is loaded
+    if ! lsmod | grep -q "$V4L2LOOPBACK_MODULE"; then
+        notify-send "Camera Monitor" "Loading v4l2loopback module..."
+        sudo modprobe "$V4L2LOOPBACK_MODULE" devices=1 exclusive_caps=1 video_nr=8 card_label="Black Feed"
+        sleep 1
+    fi
+    
+    # Verify the device exists
+    if [ ! -e "$BLACK_FRAME_DEVICE" ]; then
+        notify-send "Camera Monitor" "Error: Could not create virtual camera device."
+        return 1
+    fi
+    
+    return 0
+}
+
+# --- Create and send black feed to v4l2loopback device ---
+start_black_feed() {
+    # Ensure the v4l2loopback module is loaded
+    if ! ensure_v4l2loopback; then
+        return 1
+    fi
+    
+    # Kill any existing black feed process
+    stop_black_feed
+    
+    # Start a new black feed process
+    if command -v ffmpeg >/dev/null 2>&1; then
+        # Create a black image and pipe it to the virtual device
+        ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=black:s=1280x720 -vcodec rawvideo -pix_fmt yuv420p -f v4l2 "$BLACK_FRAME_DEVICE" >/dev/null 2>&1 &
+        echo $! > "$BLACK_FEED_PID_FILE"
+        set_camera_state 1
+        notify-send "Camera Monitor" "Camera feed blacked out."
+        return 0
+    else
+        notify-send "Camera Monitor" "Error: ffmpeg not found. Cannot create black feed."
+        return 1
+    fi
+}
+
+# --- Stop the black feed ---
+stop_black_feed() {
+    if [ -f "$BLACK_FEED_PID_FILE" ]; then
+        PID=$(cat "$BLACK_FEED_PID_FILE")
+        if kill -0 "$PID" 2>/dev/null; then
+            kill "$PID"
+        fi
+        rm "$BLACK_FEED_PID_FILE"
+    fi
+    set_camera_state 0
+}
+
+# --- Function to get list of processes using the camera ---
+get_camera_processes() {
+    # Get all processes using video0 (main camera)
+    if [ -e "/dev/video0" ]; then
+        ALL_PROCS=$(lsof /dev/video0 2>/dev/null | awk 'NR>1 {print $1,$2}')
+        
+        # Filter out excluded applications
+        FILTERED_PROCS="$ALL_PROCS"
+        for app in "${EXCLUDE_APPS[@]}"; do
+            FILTERED_PROCS=$(echo "$FILTERED_PROCS" | grep -v "$app")
+        done
+        
+        # Store the list of applications using the camera
+        echo "$FILTERED_PROCS" | awk '{print $1}' | sort | uniq > "$CAMERA_USERS_FILE"
+        
+        echo "$FILTERED_PROCS"
+    else
+        echo ""
+    fi
+}
+
+# --- Function to kill processes using the camera ---
 kill_camera_processes() {
-  # Find processes that are using the camera
-  camera_processes=$(lsof /dev/video0 | awk '{print $1,$2}' | tail -n +2)
-
-  # Exclude the applications in the list
-  for app in "${exclude_apps[@]}"
-  do
-    camera_processes=$(echo "$camera_processes" | grep -v "$app")
-  done
-
-  # Kill the processes
-  for pid in $(echo "$camera_processes" | awk '{print $2}')
-  do
-    kill -9 $pid
-  done
+    CAMERA_PROCESSES=$(get_camera_processes)
+    
+    if [ -n "$CAMERA_PROCESSES" ]; then
+        # Extract the list of unique application names
+        APP_NAMES=$(echo "$CAMERA_PROCESSES" | awk '{print $1}' | sort | uniq | tr '\n' ', ')
+        
+        # Ask for confirmation before killing processes
+        notify-send "Camera Monitor" "Killing camera processes: ${APP_NAMES}"
+        
+        # Kill the processes
+        for pid in $(echo "$CAMERA_PROCESSES" | awk '{print $2}'); do
+            kill -9 "$pid" 2>/dev/null
+        done
+        
+        # Give feedback
+        notify-send "Camera Monitor" "Camera processes terminated."
+    else
+        notify-send "Camera Monitor" "No applications are using the camera."
+    fi
 }
 
-# Function to check if any process is using the camera
+# --- Function to toggle black feed ---
+toggle_black_feed() {
+    CAMERA_STATE=$(get_camera_state)
+    
+    if [ "$CAMERA_STATE" -eq 1 ]; then
+        # Turn off black feed
+        stop_black_feed
+        notify-send "Camera Monitor" "Camera feed restored."
+    else
+        # Turn on black feed
+        start_black_feed
+    fi
+}
+
+# --- Function to show details about camera usage ---
+show_camera_details() {
+    CAMERA_PROCESSES=$(get_camera_processes)
+    
+    if [ -n "$CAMERA_PROCESSES" ]; then
+        # Extract the list of unique application names
+        APP_NAMES=$(echo "$CAMERA_PROCESSES" | awk '{print $1}' | sort | uniq)
+        APP_COUNT=$(echo "$APP_NAMES" | wc -l)
+        
+        # Display notification with details
+        notify-send "Camera Monitor" "Camera is currently in use by $APP_COUNT application(s):\n$(echo "$APP_NAMES" | sed 's/^/• /')"
+    else
+        notify-send "Camera Monitor" "No applications are currently using the camera."
+    fi
+}
+
+# --- Function to check camera status and display icon ---
 check_camera() {
-  # Check if any process is using the camera
-  camera_processes=$(lsof /dev/video0 | awk '{print $1,$2}' | tail -n +2)
-
-  # Exclude the applications in the list
-  for app in "${exclude_apps[@]}"
-  do
-    camera_processes=$(echo "$camera_processes" | grep -v "$app")
-  done
-
-  # If there are any processes left, display the emoji
-  if [ -n "$camera_processes" ]; then
-    echo ""
-  fi
+    CAMERA_PROCESSES=$(get_camera_processes)
+    CAMERA_STATE=$(get_camera_state)
+    
+    if [ "$CAMERA_STATE" -eq 1 ]; then
+        # Camera is blacked out
+        echo "${COLOR_BLACKED}${CAMERA_BLACKED_ICON}${COLOR_NORMAL}"
+    elif [ -n "$CAMERA_PROCESSES" ]; then
+        # Camera is in use - pulse the icon based on seconds
+        if [ $(($(date +%S) % 2)) -eq 0 ]; then
+            echo "${COLOR_ON}${CAMERA_ON_ICON}${COLOR_NORMAL}"
+        else
+            echo "${COLOR_ON}${CAMERA_ON_ALT_ICON}${COLOR_NORMAL}"
+        fi
+    else
+        # Camera is not in use
+        echo "$CAMERA_OFF_ICON"
+    fi
 }
 
-# Handle click events
+# --- Function to show help information ---
+show_help() {
+    notify-send "📷 Camera Monitor Module" "\
+- Left click: Toggle black feed (works while camera is in use)
+- Right click: Show details about camera usage
+- Middle click: Kill all processes using the camera
+- Scroll up: Start black feed
+- Scroll down: Restore camera feed"
+}
+
+# --- Handle click events ---
 case $BLOCK_BUTTON in
-  1) kill_camera_processes ;;  # Left click
-  6) "$TERMINAL" -e "$EDITOR" "$0" ;;
-  3) notify-send "This is the camera module. When it detects an app using the camera, it displays an emoji. Left click to kill the process." ;;
+    1) # Left click: Toggle black feed
+        toggle_black_feed
+        ;;
+    2) # Middle click: Kill camera processes
+        kill_camera_processes
+        ;;
+    3) # Right click: Show details about camera usage
+        show_camera_details
+        ;;
+    4) # Scroll up: Force start black feed
+        start_black_feed
+        ;;
+    5) # Scroll down: Force restore camera
+        stop_black_feed
+        ;;
+    6) # Edit this script
+        "$TERMINAL" -e "$EDITOR" "$0"
+        ;;
+    *) # Just display camera status
+        check_camera
+        ;;
 esac
-check_camera
