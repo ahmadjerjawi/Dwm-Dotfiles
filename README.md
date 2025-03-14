@@ -24,7 +24,7 @@ and i am planning to add webage using surf to act as a config manager without th
 - Custom scripts for enhanced system management and productivity
 - Additional files for personalization and convenience
 - Included icons and fonts to enrich the user interface
-![pic-full-250228-1120-25](https://github.com/user-attachments/assets/ee543092-ebbb-4f7c-b7e2-0871df743abe)
+![pic-full-250314-1134-38](https://github.com/user-attachments/assets/56dcfba8-79ac-4cc9-ba4b-dd1e8daecc86)
 ![pic-full-250228-1113-03](https://github.com/user-attachments/assets/b08ebcd4-4143-4c73-b27a-366738a6beac)
 
 
