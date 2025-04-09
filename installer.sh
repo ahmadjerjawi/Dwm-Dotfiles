@@ -1,398 +1,416 @@
-#!/bin/sh
+#!/bin/bash
 
-# Luke's Auto Rice Bootstrapping Script (LARBS)
-# by Luke Smith <luke@lukesmith.xyz>
-# Modifed for my Dwm Dotfiles By Ahmed jerjawi
-# License: GNU GPLv3
+# Improved DWM Dotfiles Installer Script
+# Version: 1.1
 
-### OPTIONS AND VARIABLES ###
-
-dotfilesrepo="https://github.com/ahmadjerjawi/Dwm-Dotfiles/.git"
-progsfile="https://raw.githubusercontent.com/ahmadjerjawi/Dwm-Dotfiles/refs/heads/main/progs.csv"
-aurhelper="yay"
-repobranch="master"
-export TERM=ansi
-
-rssurls="https://lukesmith.xyz/rss.xml
-https://videos.lukesmith.xyz/feeds/videos.xml?videoChannelId=2 \"~Luke Smith (Videos)\"
-https://www.youtube.com/feeds/videos.xml?channel_id=UC2eYFnH61tmytImy1mTYvhA \"~Luke Smith (YouTube)\"
-https://lindypress.net/rss
-https://notrelated.xyz/rss
-https://landchad.net/rss.xml
-https://based.cooking/index.xml
-https://artixlinux.org/feed.php \"tech\"
-https://www.archlinux.org/feeds/news/ \"tech\"
-https://github.com/LukeSmithxyz/voidrice/commits/master.atom \"~LARBS dotfiles\""
+### VARIABLES ###
+REPO_DIR=$(pwd)
+BACKUP_DIR="$HOME/.dotfiles-backup-$(date +%Y%m%d%H%M%S)"
+RESTORE_SCRIPT="$HOME/.dotfiles-restore.sh"
+LOG_FILE="/tmp/dotfiles-install-$(date +%Y%m%d%H%M%S).log"
+AURHELPER="yay"
 
 ### FUNCTIONS ###
 
-installpkg() {
-	pacman --noconfirm --needed -S "$1" >/dev/null 2>&1
+# Echo with timestamp
+log_msg() {
+    local timestamp=$(date "+%H:%M:%S")
+    echo "[$timestamp] $1"
 }
 
-error() {
-	# Log to stderr and exit with failure.
-	printf "%s\n" "$1" >&2
-	exit 1
+# Check if running on Arch-based system
+check_arch_system() {
+    log_msg "Checking system compatibility..."
+    if ! command -v pacman >/dev/null 2>&1; then
+        echo "Error: This script requires an Arch-based system with pacman."
+        echo "Your system is not supported."
+        exit 1
+    fi
+    log_msg "✓ System is Arch-based. Proceeding..."
 }
 
-welcomemsg() {
-	whiptail --title "Welcome!" \
-		--msgbox "Welcome to Ahmad's Auto-Rice Bootstrapping Script!\\n\\nThis script will automatically install a fully-featured Linux desktop, which I use as my main machine.\\n\\n-Ahmad" 10 60
-
-	whiptail --title "Important Note!" --yes-button "All ready!" \
-		--no-button "Return..." \
-		--yesno "Be sure the computer you are using has current pacman updates and refreshed Arch keyrings.\\n\\nIf it does not, the installation of some programs might fail." 8 70
+# Check and install dependencies
+check_dependencies() {
+    log_msg "Checking dependencies..."
+    if ! command -v whiptail >/dev/null 2>&1; then
+        log_msg "Installing whiptail..."
+        sudo pacman --noconfirm --needed -Sy libnewt >/dev/null 2>&1 || {
+            echo "Error: Failed to install whiptail. Are you running as a user with sudo privileges?"
+            exit 1
+        }
+    fi
+    log_msg "✓ Dependencies satisfied."
 }
 
-getuserandpass() {
-	# Prompts user for new username and password.
-	name=$(whiptail --inputbox "First, please enter a name for the user account." 10 60 3>&1 1>&2 2>&3 3>&1) || exit 1
-	while ! echo "$name" | grep -q "^[a-z_][a-z0-9_-]*$"; do
-		name=$(whiptail --nocancel --inputbox "Username not valid. Give a username beginning with a letter, with only lowercase letters, - or _." 10 60 3>&1 1>&2 2>&3 3>&1)
-	done
-	pass1=$(whiptail --nocancel --passwordbox "Enter a password for that user." 10 60 3>&1 1>&2 2>&3 3>&1)
-	pass2=$(whiptail --nocancel --passwordbox "Retype password." 10 60 3>&1 1>&2 2>&3 3>&1)
-	while ! [ "$pass1" = "$pass2" ]; do
-		unset pass2
-		pass1=$(whiptail --nocancel --passwordbox "Passwords do not match.\\n\\nEnter password again." 10 60 3>&1 1>&2 2>&3 3>&1)
-		pass2=$(whiptail --nocancel --passwordbox "Retype password." 10 60 3>&1 1>&2 2>&3 3>&1)
-	done
+# Display welcome message
+welcome_message() {
+    whiptail --title "Welcome!" \
+        --msgbox "Welcome to DWM Dotfiles Installer!\n\nThis script will:\n1. Install packages from progs.csv\n2. Back up your existing configs\n3. Install DWM and related programs\n4. Create a restore script for reverting changes\n\nThe script requires sudo privileges." 15 65 || {
+        log_msg "Installation cancelled by user."
+        exit 1
+    }
 }
 
-usercheck() {
-	! { id -u "$name" >/dev/null 2>&1; } ||
-		whiptail --title "WARNING" --yes-button "CONTINUE" \
-			--no-button "No wait..." \
-			--yesno "The user \`$name\` already exists on this system. LARBS can install for a user already existing, but it will OVERWRITE any conflicting settings/dotfiles on the user account.\\n\\nLARBS will NOT overwrite your user files, documents, videos, etc., so don't worry about that, but only click <CONTINUE> if you don't mind your settings being overwritten.\\n\\nNote also that LARBS will change $name's password to the one you just gave." 14 70
+# Confirm installation
+confirm_installation() {
+    whiptail --title "Ready to Install" --yes-button "Let's go!" \
+        --no-button "Cancel" \
+        --yesno "The installation will now begin.\n\nYour existing .config and .local directories will be backed up to:\n$BACKUP_DIR\n\nA restore script will be created at:\n$RESTORE_SCRIPT" 15 65 || {
+        log_msg "Installation cancelled by user."
+        exit 1
+    }
 }
 
-preinstallmsg() {
-	whiptail --title "Let's get this party started!" --yes-button "Let's go!" \
-		--no-button "No, nevermind!" \
-		--yesno "The rest of the installation will now be totally automated, so you can sit back and relax.\\n\\nIt will take some time, but when done, you can relax even more with your complete system.\\n\\nNow just press <Let's go!> and the system will begin installation!" 13 60 || {
-		clear
-		exit 1
-	}
+# Create backup of user files
+create_backup() {
+    log_msg "Creating backup of your configuration files..."
+
+    mkdir -p "$BACKUP_DIR"
+
+    # Backup .config if it exists
+    if [ -d "$HOME/.config" ]; then
+        mkdir -p "$BACKUP_DIR/.config"
+        for dir in $(find "$REPO_DIR/.config" -maxdepth 1 -mindepth 1 -type d -not -path "*/\.*" -printf "%f\n" 2>/dev/null); do
+            if [ -d "$HOME/.config/$dir" ]; then
+                log_msg "Backing up .config/$dir"
+                cp -a "$HOME/.config/$dir" "$BACKUP_DIR/.config/" 2>/dev/null
+            fi
+        done
+        for file in $(find "$REPO_DIR/.config" -maxdepth 1 -mindepth 1 -type f -not -path "*/\.*" -printf "%f\n" 2>/dev/null); do
+            if [ -f "$HOME/.config/$file" ]; then
+                log_msg "Backing up .config/$file"
+                cp -a "$HOME/.config/$file" "$BACKUP_DIR/.config/" 2>/dev/null
+            fi
+        done
+    fi
+
+    # Backup .local if it exists
+    if [ -d "$HOME/.local" ]; then
+        mkdir -p "$BACKUP_DIR/.local"
+        for dir in $(find "$REPO_DIR/.local" -maxdepth 1 -mindepth 1 -type d -not -path "*/\.*" -printf "%f\n" 2>/dev/null); do
+            if [ -d "$HOME/.local/$dir" ] && [ "$dir" != "src" ]; then
+                log_msg "Backing up .local/$dir"
+                cp -a "$HOME/.local/$dir" "$BACKUP_DIR/.local/" 2>/dev/null
+            elif [ "$dir" = "src" ]; then
+                mkdir -p "$BACKUP_DIR/.local/src"
+                for srcdir in $(find "$REPO_DIR/.local/src" -maxdepth 1 -mindepth 1 -type d -printf "%f\n" 2>/dev/null); do
+                    if [ -d "$HOME/.local/src/$srcdir" ]; then
+                        log_msg "Backing up .local/src/$srcdir"
+                        cp -a "$HOME/.local/src/$srcdir" "$BACKUP_DIR/.local/src/" 2>/dev/null
+                    fi
+                done
+            fi
+        done
+        for file in $(find "$REPO_DIR/.local" -maxdepth 1 -mindepth 1 -type f -not -path "*/\.*" -printf "%f\n" 2>/dev/null); do
+            if [ -f "$HOME/.local/$file" ]; then
+                log_msg "Backing up .local/$file"
+                cp -a "$HOME/.local/$file" "$BACKUP_DIR/.local/" 2>/dev/null
+            fi
+        done
+    fi
+
+    # Backup shell files
+    for file in .zprofile .bashrc .zshrc; do
+        if [ -f "$HOME/$file" ] && [ -f "$REPO_DIR/$file" ]; then
+            log_msg "Backing up $file"
+            cp -a "$HOME/$file" "$BACKUP_DIR/" 2>/dev/null
+        fi
+    done
+
+    log_msg "✓ Backup completed"
 }
 
-adduserandpass() {
-	# Adds user `$name` with password $pass1.
-	whiptail --infobox "Adding user \"$name\"..." 7 50
-	useradd -m -g wheel -s /bin/zsh "$name" >/dev/null 2>&1 ||
-		usermod -a -G wheel "$name" && mkdir -p /home/"$name" && chown "$name":wheel /home/"$name"
-	export repodir="/home/$name/.local/src"
-	mkdir -p "$repodir"
-	chown -R "$name":wheel "$(dirname "$repodir")"
-	echo "$name:$pass1" | chpasswd
-	unset pass1 pass2
-}
+# Create restore script
+create_restore_script() {
+    log_msg "Creating restore script..."
 
-refreshkeys() {
-	case "$(readlink -f /sbin/init)" in
-	*systemd*)
-		whiptail --infobox "Refreshing Arch Keyring..." 7 40
-		pacman --noconfirm -S archlinux-keyring >/dev/null 2>&1
-		;;
-	*)
-		whiptail --infobox "Enabling Arch Repositories for more a more extensive software collection..." 7 40
-		pacman --noconfirm --needed -S \
-			artix-keyring artix-archlinux-support >/dev/null 2>&1
-		grep -q "^\[extra\]" /etc/pacman.conf ||
-			echo "[extra]
-Include = /etc/pacman.d/mirrorlist-arch" >>/etc/pacman.conf
-		pacman -Sy --noconfirm >/dev/null 2>&1
-		pacman-key --populate archlinux >/dev/null 2>&1
-		;;
-	esac
-}
+    cat > "$RESTORE_SCRIPT" << EOL
+#!/bin/bash
+# Restore script for DWM Dotfiles
+# Created: $(date)
 
-manualinstall() {
-	# Installs $1 manually. Used only for AUR helper here.
-	# Should be run after repodir is created and var is set.
-	pacman -Qq "$1" && return 0
-	whiptail --infobox "Installing \"$1\" manually." 7 50
-	sudo -u "$name" mkdir -p "$repodir/$1"
-	sudo -u "$name" git -C "$repodir" clone --depth 1 --single-branch \
-		--no-tags -q "https://aur.archlinux.org/$1.git" "$repodir/$1" ||
-		{
-			cd "$repodir/$1" || return 1
-			sudo -u "$name" git pull --force origin master
-		}
-	cd "$repodir/$1" || exit 1
-	sudo -u "$name" \
-		makepkg --noconfirm -si >/dev/null 2>&1 || return 1
-}
+BACKUP_DIR="$BACKUP_DIR"
 
-maininstall() {
-	# Installs all needed programs from main repo.
-	whiptail --title "Dwm-Dotfiles Installation" --infobox "Installing \`$1\` ($n of $total). $1 $2" 9 70
-	installpkg "$1"
-}
+if [ ! -d "\$BACKUP_DIR" ]; then
+    echo "Error: Backup directory not found at \$BACKUP_DIR"
+    exit 1
+fi
 
-gitmakeinstall() {
-	progname="${1##*/}"
-	progname="${progname%.git}"
-	dir="$repodir/$progname"
-	whiptail --title "Dwm-Dotfiles Installation" \
-		--infobox "Installing \`$progname\` ($n of $total) via \`git\` and \`make\`. $(basename "$1") $2" 8 70
-	sudo -u "$name" git -C "$repodir" clone --depth 1 --single-branch \
-		--no-tags -q "$1" "$dir" ||
-		{
-			cd "$dir" || return 1
-			sudo -u "$name" git pull --force origin master
-		}
-	cd "$dir" || exit 1
-	make >/dev/null 2>&1
-	make install >/dev/null 2>&1
-	cd /tmp || return 1
-}
+echo "Restoring configuration files from \$BACKUP_DIR..."
 
-aurinstall() {
-	whiptail --title "LARBS Installation" \
-		--infobox "Installing \`$1\` ($n of $total) from the AUR. $1 $2" 9 70
-	echo "$aurinstalled" | grep -q "^$1$" && return 1
-	sudo -u "$name" $aurhelper -S --noconfirm "$1" >/dev/null 2>&1
-}
+# Restore .config
+if [ -d "\$BACKUP_DIR/.config" ]; then
+    for item in "\$BACKUP_DIR/.config"/*; do
+        name=\$(basename "\$item")
+        echo "Restoring .config/\$name"
+        rm -rf "\$HOME/.config/\$name"
+        cp -a "\$item" "\$HOME/.config/"
+    done
+fi
 
-pipinstall() {
-	whiptail --title "LARBS Installation" \
-		--infobox "Installing the Python package \`$1\` ($n of $total). $1 $2" 9 70
-	[ -x "$(command -v "pip")" ] || installpkg python-pip >/dev/null 2>&1
-	yes | pip install "$1"
-}
+# Restore .local
+if [ -d "\$BACKUP_DIR/.local" ]; then
+    for item in "\$BACKUP_DIR/.local"/*; do
+        name=\$(basename "\$item")
+        if [ "\$name" != "src" ]; then
+            echo "Restoring .local/\$name"
+            rm -rf "\$HOME/.local/\$name"
+            cp -a "\$item" "\$HOME/.local/"
+        else
+            # Handle src directory specially
+            for srcitem in "\$BACKUP_DIR/.local/src"/*; do
+                srcname=\$(basename "\$srcitem")
+                echo "Restoring .local/src/\$srcname"
+                rm -rf "\$HOME/.local/src/\$srcname"
+                cp -a "\$srcitem" "\$HOME/.local/src/"
+            done
+        fi
+    done
+fi
 
-installationloop() {
-	([ -f "$progsfile" ] && cp "$progsfile" /tmp/progs.csv) ||
-		curl -Ls "$progsfile" | sed '/^#/d' >/tmp/progs.csv
-	total=$(wc -l </tmp/progs.csv)
-	aurinstalled=$(pacman -Qqm)
-	while IFS=, read -r tag program comment; do
-		n=$((n + 1))
-		echo "$comment" | grep -q "^\".*\"$" &&
-			comment="$(echo "$comment" | sed -E "s/(^\"|\"$)//g")"
-		case "$tag" in
-		"A") aurinstall "$program" "$comment" ;;
-		"G") gitmakeinstall "$program" "$comment" ;;
-		"P") pipinstall "$program" "$comment" ;;
-		*) maininstall "$program" "$comment" ;;
-		esac
-	done </tmp/progs.csv
-}
-
-putgitrepo() {
-	# Downloads a gitrepo $1 and places the files in $2 only overwriting conflicts
-	whiptail --infobox "Downloading and installing config files..." 7 60
-	[ -z "$3" ] && branch="master" || branch="$repobranch"
-	dir=$(mktemp -d)
-	[ ! -d "$2" ] && mkdir -p "$2"
-	chown "$name":wheel "$dir" "$2"
-	sudo -u "$name" git -C "$repodir" clone --depth 1 \
-		--single-branch --no-tags -q --recursive -b "$branch" \
-		--recurse-submodules "$1" "$dir"
-	sudo -u "$name" cp -rfT "$dir" "$2"
-}
-
-vimplugininstall() {
-	# Installs vim plugins.
-	whiptail --infobox "Installing neovim plugins..." 7 60
-	mkdir -p "/home/$name/.config/nvim/autoload"
-	curl -Ls "https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim" >  "/home/$name/.config/nvim/autoload/plug.vim"
-	chown -R "$name:wheel" "/home/$name/.config/nvim"
-	sudo -u "$name" nvim -c "PlugInstall|q|q"
-}
-
-makeuserjs(){
-	# Get the Arkenfox user.js and prepare it.
-	arkenfox="$pdir/arkenfox.js"
-	overrides="$pdir/user-overrides.js"
-	userjs="$pdir/user.js"
-	ln -fs "/home/$name/.config/firefox/larbs.js" "$overrides"
-	[ ! -f "$arkenfox" ] && curl -sL "https://raw.githubusercontent.com/arkenfox/user.js/master/user.js" > "$arkenfox"
-	cat "$arkenfox" "$overrides" > "$userjs"
-	chown "$name:wheel" "$arkenfox" "$userjs"
-	# Install the updating script.
-	mkdir -p /usr/local/lib /etc/pacman.d/hooks
-	cp "/home/$name/.local/bin/arkenfox-auto-update" /usr/local/lib/
-	chown root:root /usr/local/lib/arkenfox-auto-update
-	chmod 755 /usr/local/lib/arkenfox-auto-update
-	# Trigger the update when needed via a pacman hook.
-	echo "[Trigger]
-Operation = Upgrade
-Type = Package
-Target = firefox
-Target = zen-browser
-Target = zen-browser-bin
-[Action]
-Description=Update Arkenfox user.js
-When=PostTransaction
-Depends=arkenfox-user.js
-Exec=/usr/local/lib/arkenfox-auto-update" > /etc/pacman.d/hooks/arkenfox.hook
-}
-
-installffaddons(){
-	addonlist="ublock-origin decentraleyes istilldontcareaboutcookies vim-vixen"
-	addontmp="$(mktemp -d)"
-	trap "rm -fr $addontmp" HUP INT QUIT TERM PWR EXIT
-	IFS=' '
-	sudo -u "$name" mkdir -p "$pdir/extensions/"
-	for addon in $addonlist; do
-		if [ "$addon" = "ublock-origin" ]; then
-			addonurl="$(curl -sL https://api.github.com/repos/gorhill/uBlock/releases/latest | grep -E 'browser_download_url.*\.firefox\.xpi' | cut -d '"' -f 4)"
-		else
-			addonurl="$(curl --silent "https://addons.mozilla.org/en-US/firefox/addon/${addon}/" | grep -o 'https://addons.mozilla.org/firefox/downloads/file/[^"]*')"
-		fi
-		file="${addonurl##*/}"
-		sudo -u "$name" curl -LOs "$addonurl" > "$addontmp/$file"
-		id="$(unzip -p "$file" manifest.json | grep "\"id\"")"
-		id="${id%\"*}"
-		id="${id##*\"}"
-		mv "$file" "$pdir/extensions/$id.xpi"
-	done
-	chown -R "$name:$name" "$pdir/extensions"
-	# Fix a Vim Vixen bug with dark mode not fixed on upstream:
-	sudo -u "$name" mkdir -p "$pdir/chrome"
-	[ ! -f  "$pdir/chrome/userContent.css" ] && sudo -u "$name" echo ".vimvixen-console-frame { color-scheme: light !important; }
-#category-more-from-mozilla { display: none !important }" > "$pdir/chrome/userContent.css"
-}
-
-finalize() {
-	whiptail --title "All done!" \
-		--msgbox "Congrats! Provided there were no hidden errors, the script completed successfully and all the programs and configuration files should be in place.\\n\\nTo run the new graphical environment, log out and log back in as your new user, then run the command \"startx\" to start the graphical environment (it will start automatically in tty1).\\n\\n.t Ahmed" 13 80
-}
-
-### THE ACTUAL SCRIPT ###
-
-### This is how everything happens in an intuitive format and order.
-
-# Check if user is root on Arch distro. Install whiptail.
-pacman --noconfirm --needed -Sy libnewt ||
-	error "Are you sure you're running this as the root user, are on an Arch-based distribution and have an internet connection?"
-
-# Welcome user and pick dotfiles.
-welcomemsg || error "User exited."
-
-# Get and verify username and password.
-getuserandpass || error "User exited."
-
-# Give warning if user already exists.
-usercheck || error "User exited."
-
-# Last chance for user to back out before install.
-preinstallmsg || error "User exited."
-
-### The rest of the script requires no user input.
-
-# Refresh Arch keyrings.
-refreshkeys ||
-	error "Error automatically refreshing Arch keyring. Consider doing so manually."
-
-for x in curl ca-certificates base-devel git ntp zsh dash; do
-	whiptail --title "Dwm-Dotfiles Installation" \
-		--infobox "Installing \`$x\` which is required to install and configure other programs." 8 70
-	installpkg "$x"
+# Restore shell files
+for file in .zprofile .bashrc .zshrc; do
+    if [ -f "\$BACKUP_DIR/\$file" ]; then
+        echo "Restoring \$file"
+        cp -f "\$BACKUP_DIR/\$file" "\$HOME/"
+    fi
 done
 
-whiptail --title "Dwm-Dotfiles Installation" \
-	--infobox "Synchronizing system time to ensure successful and secure installation of software..." 8 70
-ntpd -q -g >/dev/null 2>&1
+echo "Restoration complete!"
+EOL
 
-adduserandpass || error "Error adding username and/or password."
+    chmod +x "$RESTORE_SCRIPT"
+    log_msg "✓ Restore script created at $RESTORE_SCRIPT"
+}
 
-[ -f /etc/sudoers.pacnew ] && cp /etc/sudoers.pacnew /etc/sudoers # Just in case
+# Install AUR helper
+install_aur_helper() {
+    if ! command -v "$AURHELPER" >/dev/null 2>&1; then
+        log_msg "Installing AUR helper ($AURHELPER)..."
 
-# Allow user to run sudo without password. Since AUR programs must be installed
-# in a fakeroot environment, this is required for all builds with AUR.
-trap 'rm -f /etc/sudoers.d/larbs-temp' HUP INT QUIT TERM PWR EXIT
-echo "%wheel ALL=(ALL) NOPASSWD: ALL
-Defaults:%wheel,root runcwd=*" >/etc/sudoers.d/larbs-temp
+        # Install git if not already installed
+        log_msg "Checking git installation..."
+        sudo pacman --noconfirm --needed -S git >/dev/null 2>&1 || return 1
 
-# Make pacman colorful, concurrent downloads and Pacman eye-candy.
-grep -q "ILoveCandy" /etc/pacman.conf || sed -i "/#VerbosePkgLists/a ILoveCandy" /etc/pacman.conf
-sed -Ei "s/^#(ParallelDownloads).*/\1 = 5/;/^#Color$/s/#//" /etc/pacman.conf
+        # Create temporary directory for AUR helper installation
+        local tmpdir=$(mktemp -d)
+        cd "$tmpdir" || return 1
 
-# Use all cores for compilation.
-sed -i "s/-j2/-j$(nproc)/;/^#MAKEFLAGS/s/^#//" /etc/makepkg.conf
+        log_msg "Cloning $AURHELPER repository..."
+        git clone "https://aur.archlinux.org/$AURHELPER.git" >/dev/null 2>&1 || return 1
+        cd "$AURHELPER" || return 1
 
-manualinstall $aurhelper || error "Failed to install AUR helper."
+        log_msg "Building and installing $AURHELPER..."
+        makepkg --noconfirm -si >/dev/null 2>&1 || return 1
 
-# Make sure .*-git AUR packages get updated automatically.
-$aurhelper -Y --save --devel
+        # Return to original directory
+        cd "$REPO_DIR" || return 1
+        rm -rf "$tmpdir"
+        log_msg "✓ $AURHELPER installed"
+    else
+        log_msg "✓ $AURHELPER already installed"
+    fi
+}
 
-# The command that does all the installing. Reads the progs.csv file and
-# installs each needed program the way required. Be sure to run this only after
-# the user has been created and has priviledges to run sudo without a password
-# and all build dependencies are installed.
-installationloop
+# Install packages
+install_packages() {
+    if [ ! -f "$REPO_DIR/progs.csv" ]; then
+        log_msg "Error: progs.csv not found in the repository directory."
+        whiptail --msgbox "Error: progs.csv not found in the repository directory." 10 60
+        return 1
+    fi
 
-# Install the dotfiles in the user's home directory, but remove .git dir and
-# other unnecessary files.
-putgitrepo "$dotfilesrepo" "/home/$name" "$repobranch"
-rm -rf "/home/$name/.git/" "/home/$name/README.md" "/home/$name/LICENSE" "/home/$name/FUNDING.yml"
+    log_msg "Reading package list from progs.csv..."
 
+    # Count total number of packages
+    total=$(grep -v "^#" "$REPO_DIR/progs.csv" | wc -l)
+    counter=0
 
-# Install vim plugins if not alread present.
-[ ! -f "/home/$name/.config/nvim/autoload/plug.vim" ] && vimplugininstall
+    log_msg "Found $total packages to install"
 
-# Most important command! Get rid of the beep!
-rmmod pcspkr
-echo "blacklist pcspkr" >/etc/modprobe.d/nobeep.conf
+    # Process packages
+    while IFS=, read -r tag program comment || [ -n "$tag" ]; do
+        # Skip comments and empty lines
+        [[ "$tag" =~ ^# ]] && continue
+        [ -z "$tag" ] && continue
 
-# Make zsh the default shell for the user.
-chsh -s /bin/zsh "$name" >/dev/null 2>&1
-sudo -u "$name" mkdir -p "/home/$name/.cache/zsh/"
-sudo -u "$name" mkdir -p "/home/$name/.config/abook/"
-sudo -u "$name" mkdir -p "/home/$name/.config/mpd/playlists/"
+        counter=$((counter + 1))
 
-# Make dash the default #!/bin/sh symlink.
-ln -sfT /bin/dash /bin/sh >/dev/null 2>&1
+        # Remove quotes from comment if present
+        comment=$(echo "$comment" | sed -E 's/^"(.*)"$/\1/')
 
-# dbus UUID must be generated for Artix runit.
-dbus-uuidgen >/var/lib/dbus/machine-id
+        case "$tag" in
+            "A")
+                # AUR package
+                log_msg "[$counter/$total] Installing AUR package: $program"
+                whiptail --title "DWM Dotfiles Installation" --infobox "Installing [$counter/$total] AUR: $program\n\n$comment" 7 70
+                "$AURHELPER" -S --noconfirm "$program" >> "$LOG_FILE" 2>&1
+                ;;
+            "G")
+                # Git repository
+                log_msg "[$counter/$total] Installing from Git: $program"
+                whiptail --title "DWM Dotfiles Installation" --infobox "Installing [$counter/$total] Git: $program\n\n$comment" 7 70
+                reponame=$(basename "$program" .git)
+                mkdir -p "$HOME/.local/src"
+                git clone --depth 1 "$program" "$HOME/.local/src/$reponame" >> "$LOG_FILE" 2>&1
+                cd "$HOME/.local/src/$reponame" || continue
+                make >> "$LOG_FILE" 2>&1
+                sudo make install >> "$LOG_FILE" 2>&1
+                cd "$REPO_DIR" || return 1
+                ;;
+            *)
+                # Regular package
+                log_msg "[$counter/$total] Installing package: $program"
+                whiptail --title "DWM Dotfiles Installation" --infobox "Installing [$counter/$total] Package: $program\n\n$comment" 7 70
+                sudo pacman --noconfirm --needed -S "$program" >> "$LOG_FILE" 2>&1
+                ;;
+        esac
+    done < "$REPO_DIR/progs.csv"
 
-# Use system notifications for Brave on Artix
-echo "export \$(dbus-launch)" >/etc/profile.d/dbus.sh
+    log_msg "✓ Package installation completed"
+}
 
-# Enable tap to click
-[ ! -f /etc/X11/xorg.conf.d/40-libinput.conf ] && printf 'Section "InputClass"
-        Identifier "libinput touchpad catchall"
-        MatchIsTouchpad "on"
-        MatchDevicePath "/dev/input/event*"
-        Driver "libinput"
-	# Enable left mouse button by tapping
-	Option "Tapping" "on"
-EndSection' >/etc/X11/xorg.conf.d/40-libinput.conf
+# Copy dotfiles
+copy_dotfiles() {
+    log_msg "Copying dotfiles to your home directory..."
 
-# All this below to get zen-browser installed with add-ons and non-bad settings.
+    # Create directories if they don't exist
+    mkdir -p "$HOME/.config"
+    mkdir -p "$HOME/.local"
 
-whiptail --infobox "Setting browser privacy settings and add-ons..." 7 60
+    # Copy .config directory
+    if [ -d "$REPO_DIR/.config" ]; then
+        log_msg "Copying .config directory contents..."
+        cp -rf "$REPO_DIR/.config/"* "$HOME/.config/" 2>/dev/null
+    fi
 
-browserdir="/home/$name/.zen-browser"
-profilesini="$browserdir/profiles.ini"
+    # Copy .local directory (excluding .git if present)
+    if [ -d "$REPO_DIR/.local" ]; then
+        log_msg "Copying .local directory contents (excluding src)..."
+        for item in "$REPO_DIR/.local"/*; do
+            if [ -e "$item" ] && [ "$(basename "$item")" != "src" ] && [ "$(basename "$item")" != ".git" ]; then
+                cp -rf "$item" "$HOME/.local/" 2>/dev/null
+            fi
+        done
+    fi
 
-# Start zen-browser headless so it generates a profile. Then get that profile in a variable.
-sudo -u "$name" zen-browser --headless >/dev/null 2>&1 &
-sleep 1
-profile="$(sed -n "/Default=.*.default-default/ s/.*=//p" "$profilesini")"
-pdir="$browserdir/$profile"
+    # Create .local/src directory if it doesn't exist
+    mkdir -p "$HOME/.local/src"
 
-[ -d "$pdir" ] && makeuserjs
+    # Copy shell profiles
+    for file in .zprofile .bashrc .zshrc; do
+        if [ -f "$REPO_DIR/$file" ]; then
+            log_msg "Copying $file to home directory..."
+            cp -f "$REPO_DIR/$file" "$HOME/" 2>/dev/null
+        fi
+    done
 
-[ -d "$pdir" ] && installffaddons
+    log_msg "✓ Dotfiles copied successfully"
+}
 
-# Kill the now unnecessary zen-browser instance.
-pkill -u "$name" zen-browser
+# Build and install Suckless programs
+build_suckless() {
+    log_msg "Building and installing Suckless programs..."
 
-# Allow wheel users to sudo with password and allow several system commands
-# (like `shutdown` to run without password).
-echo "%wheel ALL=(ALL:ALL) ALL" >/etc/sudoers.d/00-larbs-wheel-can-sudo
-echo "%wheel ALL=(ALL:ALL) NOPASSWD: /usr/bin/shutdown,/usr/bin/reboot,/usr/bin/systemctl suspend,/usr/bin/wifi-menu,/usr/bin/mount,/usr/bin/umount,/usr/bin/pacman -Syu,/usr/bin/pacman -Syyu,/usr/bin/pacman -Syyu --noconfirm,/usr/bin/loadkeys,/usr/bin/pacman -Syyuw --noconfirm,/usr/bin/pacman -S -y --config /etc/pacman.conf --,/usr/bin/pacman -S -y -u --config /etc/pacman.conf --" >/etc/sudoers.d/01-larbs-cmds-without-password
-echo "Defaults editor=/usr/bin/nvim" >/etc/sudoers.d/02-larbs-visudo-editor
-mkdir -p /etc/sysctl.d
-echo "kernel.dmesg_restrict = 0" > /etc/sysctl.d/dmesg.conf
+    # List of Suckless programs to build
+    programs=("dwm-flexipatch" "st" "dwmblocks" "slock-flexipatch")
 
-# Cleanup
-rm -f /etc/sudoers.d/larbs-temp
+    # Ensure target directory exists
+    mkdir -p "$HOME/.local/src"
 
-# Last message! Install complete!
-finalize
+    # Build each program
+    for program in "${programs[@]}"; do
+        if [ -d "$REPO_DIR/.local/src/$program" ]; then
+            log_msg "Building $program..."
+            whiptail --infobox "Building $program..." 7 60
+
+            # Copy program directory to user's .local/src
+            log_msg "Copying $program source files..."
+            cp -r "$REPO_DIR/.local/src/$program" "$HOME/.local/src/"
+
+            # Build and install
+            log_msg "Building and installing $program..."
+            cd "$HOME/.local/src/$program" || {
+                log_msg "Error: Could not change to directory $HOME/.local/src/$program"
+                continue
+            }
+            make clean >> "$LOG_FILE" 2>&1
+            make >> "$LOG_FILE" 2>&1
+            sudo make install >> "$LOG_FILE" 2>&1
+            log_msg "✓ $program installed"
+        else
+            log_msg "Warning: $program directory not found in $REPO_DIR/.local/src/"
+        fi
+    done
+
+    cd "$REPO_DIR" || {
+        log_msg "Error: Could not return to repository directory"
+        return 1
+    }
+
+    log_msg "✓ Suckless programs installation completed"
+}
+
+# Display completion message
+completion_message() {
+    whiptail --title "Installation Complete!" \
+        --msgbox "DWM Dotfiles have been installed successfully!\n\nYour original configuration has been backed up to:\n$BACKUP_DIR\n\nTo restore your previous configuration, run:\n$RESTORE_SCRIPT\n\nTo start DWM, log out and run 'startx'." 15 70
+}
+
+# Main function
+main() {
+    echo "----- DWM Dotfiles Installer -----"
+    echo "Installation started at: $(date)"
+    echo "Log file: $LOG_FILE"
+    echo "----------------------------------"
+
+    # Check if running on Arch-based system
+    check_arch_system
+
+    # Ensure whiptail is installed
+    check_dependencies
+
+    # Welcome message
+    welcome_message
+
+    # Confirm installation
+    confirm_installation
+
+    # Create backup
+    create_backup
+
+    # Create restore script
+    create_restore_script
+
+    # Install base dependencies
+    log_msg "Installing base dependencies..."
+    whiptail --infobox "Installing base dependencies..." 7 60
+    sudo pacman --noconfirm --needed -S base-devel git curl >> "$LOG_FILE" 2>&1
+    log_msg "✓ Base dependencies installed"
+
+    # Install AUR helper
+    install_aur_helper
+
+    # Install packages from progs.csv
+    install_packages
+
+    # Copy dotfiles
+    copy_dotfiles
+
+    # Build and install Suckless programs
+    build_suckless
+
+    # Show completion message
+    completion_message
+
+    # Cleanup
+    log_msg "Cleaning up..."
+
+    echo "----------------------------------"
+    log_msg "Installation completed successfully!"
+    echo "To start DWM, log out and run 'startx'."
+    echo "----------------------------------"
+}
+
+# Run main function
+main "$@" | tee -a "$LOG_FILE"
