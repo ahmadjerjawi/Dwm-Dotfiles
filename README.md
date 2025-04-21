@@ -1,6 +1,8 @@
 
 # Dwm Dotfiles
-![New Project](https://github.com/user-attachments/assets/ea2ddc33-9d53-4b67-913d-4122f387f911)
+![36789ebb-ee94-44c3-b7c7-3b2d48c614b2(2)](https://github.com/user-attachments/assets/743e8a7f-105b-4d10-b3de-351d8b889f3c)
+
+
 
 
 # My dwm-flexipatch fork and other app
